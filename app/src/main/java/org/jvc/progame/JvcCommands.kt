@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import kotlin.math.roundToInt
 
 object JvcCommands {
 
@@ -155,9 +156,65 @@ object JvcCommands {
 
     private val FRAME_RE = Regex("Total frames rendered:\\s*(\\d+)")
 
+    /** Frames del hilo de dibujo de la app. Los juegos Unity/Vulkan casi no usan esa via. */
     fun fpsDe(paquete: String): Int? {
         val r = ShizukuShell.ejecutar("dumpsys gfxinfo $paquete reset")
         if (!r.ok) return null
         return FRAME_RE.find(r.out)?.groupValues?.get(1)?.toIntOrNull()
+    }
+
+    // ---------- FPS por SurfaceFlinger ----------
+
+    private val CAPA_SEGURA = Regex("^[A-Za-z0-9._\\[\\]()#/ -]+$")
+    private var capaNombre: String? = null
+    private var capaDe: String? = null
+
+    /** El juego se dibuja en su propia capa: ahi siestan los timestamps reales de cada frame. */
+    private fun capaDelJuego(pkg: String): String? {
+        if (capaDe == pkg && capaNombre != null) return capaNombre
+        val r = ShizukuShell.ejecutar("dumpsys SurfaceFlinger --list | grep -F $pkg")
+        if (!r.ok) return null
+        val filas = r.out.lines().map { it.trim() }.filter { it.contains(pkg) && it.contains("#") }
+        val elegida = filas.firstOrNull { it.contains("SurfaceView") }
+            ?: filas.firstOrNull { it.contains("/") }
+            ?: filas.firstOrNull()
+            ?: return null
+        if (!elegida.matches(CAPA_SEGURA)) return null
+        ShizukuShell.ejecutar("dumpsys SurfaceFlinger --latency-enable '$elegida'")
+        capaDe = pkg
+        capaNombre = elegida
+        return elegida
+    }
+
+    fun olvidaCapa() {
+        capaDe = null
+        capaNombre = null
+    }
+
+    /** Para poder explicar por que la capa no se encontro, sin adb. */
+    fun capasDe(paquete: String): ShellResult =
+        if (!seguro(paquete)) mala(paquete) else ShizukuShell.ejecutar("dumpsys SurfaceFlinger --list | grep -F $paquete")
+
+    /** FPS medidos sobre los ultimos ~127 frames que guarda SurfaceFlinger. */
+    fun fpsSuperficie(paquete: String): Int? {
+        val capa = capaDelJuego(paquete) ?: return null
+        val r = ShizukuShell.ejecutar("dumpsys SurfaceFlinger --latency '$capa'")
+        if (!r.ok) return null
+        val filas = r.out.lines().drop(1).map { it.trim() }.filter { it.isNotEmpty() }
+        val series = filas.map { it.split(Regex("\\s+")).mapNotNull { x -> x.toLongOrNull() } }
+            .filter { it.isNotEmpty() }
+        if (series.isEmpty()) return null
+        val tam = series.first().size
+        val i = when {
+            tam >= 3 -> 2
+            tam == 2 -> 1
+            else -> 0
+        }
+        val utiles = series.filter { it.size > i }
+        if (utiles.size < 2) return null
+        val t0 = utiles.first()[i]
+        val t1 = utiles.last()[i]
+        if (t1 <= t0) return null
+        return (((utiles.size - 1) * 1_000_000_000.0) / (t1 - t0)).roundToInt()
     }
 }

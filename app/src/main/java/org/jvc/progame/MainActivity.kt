@@ -188,6 +188,11 @@ class MainActivity : AppCompatActivity() {
             stopService(Intent(this, FpsOverlayService::class.java))
             secOverlay.decir("overlay quitado")
         }
+        secOverlay.boton("¿Que capa ve SurfaceFlinger de mi juego?") {
+            val pkg = paqueteElegido
+            if (pkg == null) secOverlay.decir("primero elige el juego, o usalo desde el recuadro LANZADOR")
+            else secOverlay.lectura("capas de $pkg") { JvcCommands.capasDe(pkg) }
+        }
         anadir(secOverlay)
 
         secRendimiento = Seccion("ALTO RENDIMIENTO")

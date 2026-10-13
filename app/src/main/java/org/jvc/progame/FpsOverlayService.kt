@@ -32,6 +32,7 @@ class FpsOverlayService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val pool = Executors.newSingleThreadExecutor()
     @Volatile private var corriendo = true
+    private var sinCapa = 0
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -100,25 +101,47 @@ class FpsOverlayService : Service() {
             pool.execute {
                 // Primero la app elegida; si no tira frames, se pregunta quien esta en pantalla.
                 var objetivo = elegido ?: JvcCommands.appEnPrimeroPlano()
-                var frames = objetivo?.let { JvcCommands.fpsDe(it) }
-                var motivo = if (objetivo == null) "sin app en pantalla" else ""
+                var medida = medir(objetivo)
+                var frames = medida.first
+                var motivo = medida.second
                 if ((frames == null || frames == 0) && elegido != null) {
                     val enPantalla = JvcCommands.appEnPrimeroPlano()
                     if (enPantalla != null && enPantalla != objetivo) {
-                        val segunda = JvcCommands.fpsDe(enPantalla)
-                        if (segunda != null && segunda > 0) {
+                        val segunda = medir(enPantalla)
+                        val v = segunda.first
+                        if (v != null && v > 0) {
                             objetivo = enPantalla
-                            frames = segunda
-                            motivo = "(auto)"
-                        } else {
-                            motivo = "gfxinfo no cuenta frames de $enPantalla"
+                            frames = v
+                            motivo = "(auto) " + segunda.second
                         }
                     }
                 }
-                main.post { pinta(frames, objetivo, motivo) }
+                main.post { pinta(frames, objetivo, motivo.trim()) }
             }
         }
         main.postDelayed({ bucle() }, 1000)
+    }
+
+    /** Dos vias de conteo: la app misma y la capa que compone SurfaceFlinger. */
+    private fun medir(pkg: String?): Pair<Int?, String> {
+        if (pkg == null) return Pair(null, "sin app en pantalla")
+        val gfx = JvcCommands.fpsDe(pkg)
+        if (gfx != null && gfx > 0) {
+            sinCapa = 0
+            return Pair(gfx, "")
+        }
+        val capa = JvcCommands.fpsSuperficie(pkg)
+        if (capa != null && capa > 0) {
+            sinCapa = 0
+            return Pair(capa, "(capa)")
+        }
+        sinCapa++
+        // La capa cambia cuando el juego reinicia su ventana: se busca otra vez.
+        if (sinCapa >= 5) {
+            JvcCommands.olvidaCapa()
+            sinCapa = 0
+        }
+        return Pair(gfx, if (gfx == null) "gfxinfo sin dato, capa sin dato" else "gfxinfo 0, capa sin dato")
     }
 
     private fun pinta(fps: Int?, pkg: String?, motivo: String) {
