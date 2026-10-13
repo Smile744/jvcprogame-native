@@ -1,6 +1,9 @@
 package org.jvc.progame
 
 import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -16,6 +19,7 @@ import android.view.Display
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
@@ -32,6 +36,8 @@ class FpsOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Sin servicio en primer plano el sistema congela el bucle cuando abres el juego.
+        startForeground(ID_NOTIF, notificacion(null))
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         texto = TextView(this).apply {
             setTextColor(Color.parseColor("#00FFB7"))
@@ -97,8 +103,24 @@ class FpsOverlayService : Service() {
         }
     }
 
+    private fun notificacion(pkg: String?): Notification {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(CANAL, "Contador de FPS", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+        return NotificationCompat.Builder(this, CANAL)
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setContentTitle("JVC-PRO-GAME")
+            .setContentText(if (pkg == null) "Overlay activo" else "FPS de $pkg")
+            .setOngoing(true)
+            .build()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         paquete = intent?.getStringExtra("pkg")
+        startForeground(ID_NOTIF, notificacion(paquete))
         return START_STICKY
     }
 
@@ -107,5 +129,10 @@ class FpsOverlayService : Service() {
         pool.shutdownNow()
         try { wm.removeView(texto) } catch (e: Exception) { }
         super.onDestroy()
+    }
+
+    companion object {
+        private const val ID_NOTIF = 41
+        private const val CANAL = "fps_overlay"
     }
 }

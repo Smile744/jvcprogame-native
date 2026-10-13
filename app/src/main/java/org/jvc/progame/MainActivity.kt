@@ -15,6 +15,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import rikka.shizuku.Shizuku
 
 class MainActivity : AppCompatActivity() {
@@ -209,7 +210,10 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
-        startService(Intent(this, FpsOverlayService::class.java).putExtra("pkg", pkg))
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, FpsOverlayService::class.java).putExtra("pkg", pkg)
+        )
         loguea("Overlay de FPS activo para $pkg")
     }
 
