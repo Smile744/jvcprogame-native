@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
         refrescarEstado()
         // El diagnostico tarda: que el resultado aparezca solo, sin pulsar nada.
         lanzar {
-            loguea("probando el servicio de comandos: espera hasta 25 s")
+            loguea("probando el canal de comandos...")
             loguea("arranque · " + ShizukuShell.pruebaServicio())
         }
     }

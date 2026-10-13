@@ -47,10 +47,10 @@ object ShizukuShell {
 
     fun listo() = binderVivo() && permisoConcedido()
 
-    /** Lanza el servicio shell por adelantado, siempre fuera del hilo principal. */
+    /** Lanza el servicio shell por adelantado, fuera del hilo principal y solo si hace falta. */
     fun iniciar(ctx: Context) {
         componente = ComponentName(ctx.packageName, JvcUserService::class.java.name)
-        if (listo() && servicio == null) Thread { enlazar() }.start()
+        if (metodoProceso == null && listo() && servicio == null) Thread { enlazar() }.start()
     }
 
     /** Un boton que dice en el registro por que no levanto el servicio. */
@@ -58,18 +58,66 @@ object ShizukuShell {
         if (!binderVivo()) return "Shizuku apagado: abre la app Shizuku y activalo"
         if (!permisoConcedido()) return "Falta el permiso: pulsa Conceder permiso a Shizuku"
         ultimoError = null
-        val s = servicio() ?: return "Bind fallido: ${ultimoError ?: "sin motivo"} · Shizuku ${versionTexto()}"
+        val remoto = porProcesoRemoto("id")
+        if (remoto != null && remoto.ok) {
+            return "Proceso remoto OK · Shizuku ${versionTexto()} · ${remoto.out.trim()}"
+        }
+        val motivoRemoto = remoto?.let { "proceso remoto: ${it.err}" } ?: "la libreria no trae newProcess"
+        val s = servicio() ?: return "Ningun canal vale · $motivoRemoto · bind: ${ultimoError ?: "sin motivo"} · Shizuku ${versionTexto()}"
         val r = try {
             s.exec("id")
         } catch (e: Exception) {
             return "Servicio conectado pero exec rechaza: ${e.javaClass.simpleName}: ${e.message}"
         }
-        return "Servicio OK · Shizuku ${versionTexto()} · ${r.split(SEP).getOrElse(1) { r }}"
+        return "Servicio de usuario OK · $motivoRemoto · Shizuku ${versionTexto()} · ${r.split(SEP).getOrElse(1) { r }}"
     }
 
     private fun versionTexto() = try { "v" + Shizuku.getVersion() } catch (e: Exception) { "?" }
 
+    /**
+     * Shizuku puede lanzar procesos hijo del propio daemon shell sin crear un UserService.
+     * El metodo existe en la libreria pero es privado, asi que se invoca por reflexion.
+     */
+    private val metodoProceso by lazy {
+        try {
+            Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            ).apply { isAccessible = true }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Devuelve null solo cuando la libreria no ofrece ese metodo; los demas casos dan respuesta. */
+    private fun porProcesoRemoto(cmd: String): ShellResult? {
+        val m = metodoProceso ?: return null
+        val proc = try {
+            m.invoke(null, arrayOf("sh", "-c", cmd), null, null) as? Process
+        } catch (e: Exception) {
+            val c = if (e is java.lang.reflect.InvocationTargetException) e.targetException else e
+            return ShellResult(-3, "", "newProcess rechazo: ${c.javaClass.simpleName}: ${c.message}")
+        } ?: return ShellResult(-3, "", "newProcess devolvio vacio")
+        return try {
+            var err = ""
+            val hilo = Thread {
+                err = try { proc.errorStream.bufferedReader().use { it.readText() } } catch (e: Exception) { "" }
+            }
+            hilo.start()
+            val out = proc.inputStream.bufferedReader().use { it.readText() }
+            val code = proc.waitFor()
+            hilo.join(3000)
+            ShellResult(code, out, err)
+        } catch (e: Exception) {
+            try { proc.destroy() } catch (_: Exception) {}
+            ShellResult(-4, "", "${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
     fun ejecutar(cmd: String): ShellResult {
+        porProcesoRemoto(cmd)?.let { return it }
         val s = servicio() ?: return ShellResult(
             -1, "",
             if (listo()) "No arranco el servicio shell: ${ultimoError ?: "sin motivo aun, pulsa Probar servicio de comandos"}"
