@@ -34,6 +34,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var anchoInput: EditText
     private lateinit var altoInput: EditText
     private lateinit var dpiInput: EditText
+    private lateinit var sensInput: EditText
+    private lateinit var cadenciaInput: EditText
+    private lateinit var modoInput: EditText
+    private lateinit var secGatillos: Seccion
     private var paqueteElegido: String? = null
     private var ultimaDns: String? = null
     private var ultimoHz: Int? = null
@@ -176,11 +180,15 @@ class MainActivity : AppCompatActivity() {
         anadir(secPantalla)
 
         secHz = Seccion("REFRESH RATE")
-        listOf(60, 90, 120).forEach { hz ->
+        listOf(60, 90, 120, 144).forEach { hz ->
             secHz.boton("Forzar $hz Hz") {
                 ultimoHz = hz
                 secHz.ejecutar("$hz Hz (algun fabricante lo ignora)") { JvcCommands.ponHz(hz) }
             }
+        }
+        secHz.boton("Que el sistema decida los Hz otra vez") {
+            ultimoHz = null
+            secHz.ejecutar("Hz auto") { JvcCommands.hzAuto() }
         }
         secHz.boton("¿Hz reales que esta dando la pantalla?") {
             secHz.lectura("modo actual") { ShizukuShell.ejecutar("dumpsys display | grep -m2 -E 'mCurrentRefreshRate|modeId'") }
@@ -219,6 +227,20 @@ class MainActivity : AppCompatActivity() {
             secRendimiento.lectura("cpu") { JvcCommands.frenosCpu() }
         }
         anadir(secRendimiento)
+
+        secGatillos = Seccion("GATILLOS: GT TRIGGER DE MI TELEFONO")
+        secGatillos.boton("Mi telefono y donde estan sus gatillos") {
+            secGatillos.lectura("telefono ${JvcCommands.miTelefono()}") { JvcCommands.gatillosInfo() }
+        }
+        secGatillos.boton("Abrir el gestor de juegos (ahi se mapean los gatillos)") {
+            abrirGestorJuegos()
+        }
+        sensInput = secGatillos.campo("sensibilidad 1-10, ej. 7")
+        cadenciaInput = secGatillos.campo("toques por segundo, ej. 12")
+        modoInput = secGatillos.campo("modo: simple / doble / turbo")
+        secGatillos.boton("Guardar estos valores para MI modelo") { guardarGatillos() }
+        secGatillos.boton("Recordarme los valores guardados") { verGatillos() }
+        anadir(secGatillos)
 
         secLanzador = Seccion("LANZADOR: TODO DE UN GOLPE")
         secLanzador.boton("1. Elegir el juego del lanzador") { elegirJuego(secLanzador, accion = "perfil") }
@@ -292,6 +314,64 @@ class MainActivity : AppCompatActivity() {
     // ---------- lanzador ----------
 
     private fun prefs() = getSharedPreferences("perfil", MODE_PRIVATE)
+
+    // ---------- gatillos ----------
+
+    /** Busca X-Arena / el game booster de la ROM y lo abre: el mapeo real lo hace ese servicio. */
+    private fun abrirGestorJuegos() {
+        lanzar {
+            val lista = JvcCommands.gestoresJuego(this)
+            if (lista.isEmpty()) {
+                secGatillos.decir(
+                    "no veo el gestor de juegos instalado. Buscalo en Ajustes como X-Arena y " +
+                        "abre ahi Gatillos/GT Trigger: esa pantalla es del sistema, mi app no puede dibujarla."
+                )
+                return@lanzar
+            }
+            if (lista.size == 1) {
+                runOnUiThread { abrirApp(secGatillos, lista.first().second) }
+                return@lanzar
+            }
+            val nombres = lista.map { it.first }
+            val paquetes = lista.map { it.second }
+            runOnUiThread {
+                AlertDialog.Builder(this)
+                    .setTitle("Cual abrimos")
+                    .setItems(nombres.toTypedArray()) { _, i -> abrirApp(secGatillos, paquetes[i]) }
+                    .show()
+            }
+        }
+    }
+
+    private fun prefsGatillos() = getSharedPreferences("gatillos", MODE_PRIVATE)
+
+    private fun guardarGatillos() {
+        val modelo = JvcCommands.miTelefono()
+        prefsGatillos().edit()
+            .putString("modelo", modelo)
+            .putString("sens", sensInput.text.toString().trim())
+            .putString("cadencia", cadenciaInput.text.toString().trim())
+            .putString("modo", modoInput.text.toString().trim())
+            .apply()
+        secGatillos.decir(
+            "anotado para $modelo: sensibilidad ${sensInput.text} · " +
+                "${cadenciaInput.text} toques/s · ${modoInput.text}\n" +
+                "ahora pulsa 'Abrir el gestor' y aplica esos numeros en Gatillos: los botones " +
+                "fisicos solo los traduce la ROM."
+        )
+    }
+
+    private fun verGatillos() {
+        val p = prefsGatillos()
+        val modelo = JvcCommands.miTelefono()
+        val s = p.getString("sens", "")?.ifBlank { null }
+        val c = p.getString("cadencia", "")?.ifBlank { null }
+        val m = p.getString("modo", "")?.ifBlank { null }
+        secGatillos.decir(
+            if (s == null && c == null && m == null) "nada guardado todavia ($modelo)"
+            else "$modelo -> sensibilidad ${s ?: "-"} · toques/s ${c ?: "-"} · modo ${m ?: "-"}"
+        )
+    }
 
     private fun fueraDeReposo() {
         val pkg = paqueteElegido

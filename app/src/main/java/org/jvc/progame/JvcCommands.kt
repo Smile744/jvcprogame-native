@@ -251,4 +251,41 @@ object JvcCommands {
         if (t1 <= t0) return null
         return (((utiles.size - 1) * 1_000_000_000.0) / (t1 - t0)).roundToInt()
     }
+
+    // ---------- gatillos y telefono ----------
+
+    private val GESTOR_RE = Regex("arena|boost|game|juego|turbo|trigger|espacio")
+
+    /**
+     * Los GT Trigger los mapea el gestor de juegos de la ROM, ninguna app de terceros puede
+     * escribir ahi. Lo que si se puede es encontrarlo y abrirlo de un toque.
+     */
+    fun gestoresJuego(ctx: Context): List<Pair<String, String>> {
+        val pm = ctx.packageManager
+        val encontrados = ArrayList<Pair<String, String>>()
+        for (info in pm.getInstalledApplications(PackageManager.GET_META_DATA)) {
+            val pkg = info.packageName
+            if (pkg == ctx.packageName || pm.getLaunchIntentForPackage(pkg) == null) continue
+            val nombre = info.loadLabel(pm).toString()
+            if (GESTOR_RE.containsMatchIn((nombre + " " + pkg).lowercase())) {
+                encontrados.add(nombre to pkg)
+            }
+        }
+        return encontrados.distinctBy { it.second }.sortedBy { it.first.lowercase() }
+    }
+
+    fun miTelefono(): String =
+        "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}"
+
+    /** Todo lo que se puede SABER de los gatillos sin root: modelo, Hz, gestor y mandos fisicos. */
+    fun gatillosInfo(): ShellResult = ShizukuShell.ejecutar(
+        "echo TELEFONO:; getprop ro.product.brand; getprop ro.product.model; getprop ro.build.display.id; " +
+            "echo HZ:; dumpsys display | grep -m1 mCurrentRefreshRate; " +
+            "echo GESTORES:; pm list packages -3 | grep -iE 'arena|boost|game|trigger|turbo'; " +
+            "echo MANDOS:; getevent -ip 2>/dev/null | grep -iE 'add device|name' | head -20; " +
+            "echo TACTIL:; settings get secure tap_and_hold_delay; settings get secure pointer_speed"
+    )
+
+    /** 0 = que el sistema vuelva a elegir solo, para quitar un forzado que siente raro. */
+    fun hzAuto(): ShellResult = ShizukuShell.ejecutar("settings delete system user_refresh_rate")
 }
