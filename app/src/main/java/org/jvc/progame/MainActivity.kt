@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -127,12 +128,21 @@ class MainActivity : AppCompatActivity() {
             setPadding(24, 24, 24, 24)
         }
 
+        raiz.addView(ImageView(this).apply {
+            setImageResource(R.drawable.jvc_wordmark)
+            adjustViewBounds = true
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = 4 })
+
         raiz.addView(TextView(this).apply {
             text = "JVC-PRO-GAME"
-            textSize = 26f
+            textSize = 17f
             setTextColor(0xFFC81919.toInt())
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 56))
+            letterSpacing = 0.2f
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 40))
 
         estado = TextView(this).apply { textSize = 13f; setTextColor(0xFFAAAAAA.toInt()) }
         raiz.addView(estado)
