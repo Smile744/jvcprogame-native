@@ -25,16 +25,28 @@ object JvcCommands {
         }
         // Prima el nombre: si no resuelve, aplicarlo corta el Internet del movil.
         val prueba = ShizukuShell.ejecutar("nslookup $host")
-        if (!IPv4_RE.containsMatchIn(prueba.out)) {
+        if (!IPv4_RE.containsMatchIn(prueba.out) && !prueba.err.contains("not found")) {
             return ShellResult(
                 -8, "",
-                "$host no resuelve ahora mismo, no lo aplico (te dejaria sin Internet)"
+                "$host no resuelve, no lo aplico · " +
+                    (prueba.out.trim().ifBlank { prueba.err.trim() }.ifBlank { "nslookup callado" })
             )
         }
         return ShizukuShell.ejecutar(
             "settings put global private_dns_mode hostname && " +
                 "settings put global private_dns_specifier $host"
         )
+    }
+
+    /** nslookup + intento real de conexion al 853: ahi se ve si la operadora corta el DoT. */
+    fun pruebaRutaDns(): ShellResult {
+        val partes = ArrayList<String>()
+        DNS_PRESETS.forEach { (_, host) ->
+            partes.add("echo == $host")
+            partes.add("nslookup $host | grep -m1 -A1 Address")
+            partes.add("nc -w 3 $host 853 </dev/null && echo '853 ABIERTO' || echo '853 BLOQUEADO'")
+        }
+        return ShizukuShell.ejecutar(partes.joinToString("; "))
     }
 
     fun apagaDns(): ShellResult =
@@ -186,26 +198,36 @@ object JvcCommands {
         if (capaDe == pkg && capaNombre != null) return capaNombre
         val r = ShizukuShell.ejecutar("dumpsys SurfaceFlinger --list | grep -F $pkg")
         if (!r.ok) return null
-        val filas = r.out.lines().map { it.trim() }.filter { it.contains(pkg) && it.contains("#") }
+        // Algunas ROMs no ponen el sufijo #id: se acepta cualquier linea que sea una capa.
+        val filas = r.out.lines().map { it.trim() }
+            .filter { it.contains(pkg) && !it.startsWith("Window{") && !it.startsWith("Background") }
         val elegida = filas.firstOrNull { it.contains("SurfaceView") }
             ?: filas.firstOrNull { it.contains("/") }
             ?: filas.firstOrNull()
             ?: return null
         if (!elegida.matches(CAPA_SEGURA)) return null
         ShizukuShell.ejecutar("dumpsys SurfaceFlinger --latency-enable '$elegida'")
+        // El anillo de timestamps tarda un instante en llenarse tras activar el muestreo.
+        try {
+            Thread.sleep(1200)
+        } catch (e: InterruptedException) {
+        }
         capaDe = pkg
         capaNombre = elegida
         return elegida
     }
 
+    /** Lo que ve el sistema de tu juego, en texto, para que lo pegues en el chat sin adb. */
+    fun diagnosticoCapas(paquete: String): ShellResult =
+        if (!seguro(paquete)) mala(paquete) else ShizukuShell.ejecutar(
+            "echo LISTA DE CAPAS:; dumpsys SurfaceFlinger --list | grep -F $paquete; " +
+                "echo GFXINFO:; dumpsys gfxinfo $paquete | grep -E 'Total frames rendered|SurfaceView|Layer'"
+        )
+
     fun olvidaCapa() {
         capaDe = null
         capaNombre = null
     }
-
-    /** Para poder explicar por que la capa no se encontro, sin adb. */
-    fun capasDe(paquete: String): ShellResult =
-        if (!seguro(paquete)) mala(paquete) else ShizukuShell.ejecutar("dumpsys SurfaceFlinger --list | grep -F $paquete")
 
     /** FPS medidos sobre los ultimos ~127 frames que guarda SurfaceFlinger. */
     fun fpsSuperficie(paquete: String): Int? {

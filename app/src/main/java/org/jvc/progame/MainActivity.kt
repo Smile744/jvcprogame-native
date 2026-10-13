@@ -159,6 +159,9 @@ class MainActivity : AppCompatActivity() {
             secDns.ejecutar("DNS off") { JvcCommands.apagaDns() }
         }
         secDns.boton("DNS: como esta ahora") { secDns.lectura("DNS actual") { JvcCommands.leeDnsActual() } }
+        secDns.boton("Probar si mi red soporta DNS privado (puerto 853)") {
+            secDns.lectura("prueba de red") { JvcCommands.pruebaRutaDns() }
+        }
         anadir(secDns)
 
         secPantalla = Seccion("PANTALLA: ANCHO / ALTO / DPI")
@@ -194,7 +197,7 @@ class MainActivity : AppCompatActivity() {
         secOverlay.boton("¿Que capa ve SurfaceFlinger de mi juego?") {
             val pkg = paqueteElegido
             if (pkg == null) secOverlay.decir("primero elige el juego, o usalo desde el recuadro LANZADOR")
-            else secOverlay.lectura("capas de $pkg") { JvcCommands.capasDe(pkg) }
+            else secOverlay.lectura("capas de $pkg") { JvcCommands.diagnosticoCapas(pkg) }
         }
         anadir(secOverlay)
 
