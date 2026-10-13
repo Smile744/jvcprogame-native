@@ -32,6 +32,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(construirUI())
         ShizukuShell.iniciar(this)
         refrescarEstado()
+        // El diagnostico tarda: que el resultado aparezca solo, sin pulsar nada.
+        lanzar {
+            loguea("probando el servicio de comandos: espera hasta 25 s")
+            loguea("arranque · " + ShizukuShell.pruebaServicio())
+        }
     }
 
     override fun onResume() {
@@ -164,11 +169,19 @@ class MainActivity : AppCompatActivity() {
         val permiso = ShizukuShell.permisoConcedido()
         val overlay = Settings.canDrawOverlays(this)
         estado.text = buildString {
-            append("Shizuku: "); append(if (vivo && permiso) "activo" else if (vivo) "sin permiso" else "APAGADO")
+            append("APK "); append(textoVersion())
+            append("  ·  Shizuku: "); append(if (vivo && permiso) "activo" else if (vivo) "sin permiso" else "APAGADO")
             append("  ·  Overlay: "); append(if (overlay) "permitido" else "no permitido")
             append("  ·  Juego: "); append(paqueteElegido ?: "ninguno")
             if (vivo && !permiso) Handler(Looper.getMainLooper()).postDelayed({ refrescarEstado() }, 1500)
         }
+    }
+
+    private fun textoVersion(): String = try {
+        val pi = packageManager.getPackageInfo(packageName, 0)
+        "${pi.versionName} build ${pi.versionCode}"
+    } catch (e: Exception) {
+        "?"
     }
 
     // ---------- acciones ----------

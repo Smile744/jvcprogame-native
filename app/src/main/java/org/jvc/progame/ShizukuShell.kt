@@ -72,7 +72,7 @@ object ShizukuShell {
     fun ejecutar(cmd: String): ShellResult {
         val s = servicio() ?: return ShellResult(
             -1, "",
-            if (listo()) "No arranco el servicio shell: ${ultimoError ?: "sin motivo"}"
+            if (listo()) "No arranco el servicio shell: ${ultimoError ?: "sin motivo aun, pulsa Probar servicio de comandos"}"
             else "Shizuku no esta activo o falta el permiso"
         )
         return try {
