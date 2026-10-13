@@ -235,6 +235,12 @@ class MainActivity : AppCompatActivity() {
         secGatillos.boton("Abrir el gestor de juegos (ahi se mapean los gatillos)") {
             abrirGestorJuegos()
         }
+        secGatillos.boton("MAPA: colocar los puntos arrastrando el dedo") {
+            startActivity(Intent(this, MapaGatillosActivity::class.java))
+        }
+        secGatillos.boton("?Donde guarda X-Arena mi mapeo? (solo leer)") {
+            secGatillos.lectura("x-arena") { JvcCommands.arenaMapa() }
+        }
         sensInput = secGatillos.campo("sensibilidad 1-10, ej. 7")
         cadenciaInput = secGatillos.campo("toques por segundo, ej. 12")
         modoInput = secGatillos.campo("modo: simple / doble / turbo")

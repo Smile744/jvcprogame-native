@@ -288,4 +288,15 @@ object JvcCommands {
 
     /** 0 = que el sistema vuelva a elegir solo, para quitar un forzado que siente raro. */
     fun hzAuto(): ShellResult = ShizukuShell.ejecutar("settings delete system user_refresh_rate")
+
+    /**
+     * Si el mapeo de gatillos vive en settings, la ROM lo sigue traduciendo ella y escribir ahi
+     * no es inyectar al juego. Si vive en su /data/data, sin root no hay nada que hacer. Solo lee.
+     */
+    fun arenaMapa(): ShellResult = ShizukuShell.ejecutar(
+        "echo PAQUETES:; pm list packages | grep -iE 'transsion|infinix|arena|game|space'; " +
+            "echo SECURE:; settings list secure | grep -iE 'arena|trigger|game|touch|gs_|gest' | head -25; " +
+            "echo GLOBAL:; settings list global | grep -iE 'arena|trigger|game|touch' | head -25; " +
+            "echo SYSTEM:; settings list system | grep -iE 'arena|trigger|game|touch' | head -25"
+    )
 }
