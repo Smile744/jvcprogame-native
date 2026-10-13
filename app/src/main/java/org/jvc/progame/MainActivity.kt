@@ -29,10 +29,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var secHz: Seccion
     private lateinit var secOverlay: Seccion
     private lateinit var secCongelador: Seccion
+    private lateinit var secRendimiento: Seccion
+    private lateinit var secLanzador: Seccion
     private lateinit var anchoInput: EditText
     private lateinit var altoInput: EditText
     private lateinit var dpiInput: EditText
     private var paqueteElegido: String? = null
+    private var ultimaDns: String? = null
+    private var ultimoHz: Int? = null
     private var nombresApps: List<String> = emptyList()
     private var paquetesApps: List<String> = emptyList()
 
@@ -101,7 +105,9 @@ class MainActivity : AppCompatActivity() {
 
         fun lectura(etiqueta: String, orden: () -> ShellResult) = lanzar {
             val r = orden()
-            decir("$etiqueta -> ${if (r.ok) r.out.trim().ifBlank { "sin dato" } else r.resumen()}")
+            val dato = r.out.trim()
+            // Un grep que no encuentra nada sale con codigo 1: si hay texto, es el dato.
+            decir("$etiqueta -> ${dato.ifBlank { if (r.ok) "sin dato" else r.resumen() }}")
         }
     }
 
@@ -143,7 +149,10 @@ class MainActivity : AppCompatActivity() {
 
         secDns = Seccion("DNS PRIVADO")
         JvcCommands.DNS_PRESETS.forEach { (nombre, host) ->
-            secDns.boton("DNS: $nombre") { secDns.ejecutar("DNS $host") { JvcCommands.ponDns(host) } }
+            secDns.boton("DNS: $nombre") {
+                ultimaDns = host
+                secDns.ejecutar("DNS $host") { JvcCommands.ponDns(host) }
+            }
         }
         secDns.boton("DNS: apagar") { secDns.ejecutar("DNS off") { JvcCommands.apagaDns() } }
         secDns.boton("DNS: leer el actual") { secDns.lectura("DNS actual") { JvcCommands.leeDnsActual() } }
@@ -163,18 +172,49 @@ class MainActivity : AppCompatActivity() {
         secHz = Seccion("REFRESH RATE")
         listOf(60, 90, 120).forEach { hz ->
             secHz.boton("Forzar $hz Hz") {
+                ultimoHz = hz
                 secHz.ejecutar("$hz Hz (algun fabricante lo ignora)") { JvcCommands.ponHz(hz) }
             }
+        }
+        secHz.boton("¿Hz reales que esta dando la pantalla?") {
+            secHz.lectura("modo actual") { ShizukuShell.ejecutar("dumpsys display | grep -m2 -E 'mCurrentRefreshRate|modeId'") }
         }
         anadir(secHz)
 
         secOverlay = Seccion("OVERLAY FPS + Hz")
         secOverlay.boton("Elegir juego y lanzar contador") { elegirJuego(secOverlay, porOverlay = true) }
+        secOverlay.boton("Contador automatico (detecta el juego solo)") { pedirOverlayYMostrar(secOverlay, null) }
         secOverlay.boton("Quitar overlay") {
             stopService(Intent(this, FpsOverlayService::class.java))
             secOverlay.decir("overlay quitado")
         }
         anadir(secOverlay)
+
+        secRendimiento = Seccion("ALTO RENDIMIENTO")
+        secRendimiento.boton("Quitar animaciones (se nota al tacto)") {
+            secRendimiento.ejecutar("animaciones a 0") { JvcCommands.animaCero() }
+        }
+        secRendimiento.boton("Poner animaciones otra vez") {
+            secRendimiento.ejecutar("animaciones a 1") { JvcCommands.animaNormal() }
+        }
+        secRendimiento.boton("Apagar el ahorro de bateria") {
+            secRendimiento.ejecutar("low_power off") { JvcCommands.ahorroOff() }
+        }
+        secRendimiento.boton("Sacar el juego del reposo de la ROM") { fueraDeReposo() }
+        secRendimiento.boton("¿Por que frena? temperatura") {
+            secRendimiento.lectura("termica") { JvcCommands.estadoTermico() }
+        }
+        secRendimiento.boton("Ver frenos de CPU (lectura)") {
+            secRendimiento.lectura("cpu") { JvcCommands.frenosCpu() }
+        }
+        anadir(secRendimiento)
+
+        secLanzador = Seccion("LANZADOR: TODO DE UN GOLPE")
+        secLanzador.boton("1. Elegir el juego del lanzador") { elegirJuego(secLanzador, accion = "perfil") }
+        secLanzador.boton("2. Guardar perfil con lo de las casillas") { guardarPerfil() }
+        secLanzador.boton("3. LANZAR TODO y abrir el juego") { lanzarTodo() }
+        secLanzador.boton("Ver perfil guardado") { verPerfil() }
+        anadir(secLanzador)
 
         secCongelador = Seccion("CONGELADOR")
         secCongelador.boton("Elegir app y congelarla") { elegirJuego(secCongelador, accion = "congelar") }
@@ -236,6 +276,94 @@ class MainActivity : AppCompatActivity() {
                     tam.out.trim() + "\ndensidad: " + den.out.trim()
             )
         }
+    }
+
+    // ---------- lanzador ----------
+
+    private fun prefs() = getSharedPreferences("perfil", MODE_PRIVATE)
+
+    private fun fueraDeReposo() {
+        val pkg = paqueteElegido
+        if (pkg == null) secRendimiento.decir("primero elige el juego en el recuadro LANZADOR")
+        else secRendimiento.ejecutar("$pkg fuera de Doze") { JvcCommands.fueraDeReposo(pkg) }
+    }
+
+    private fun guardarPerfil() {
+        val a = anchoInput.text.toString().trim().toIntOrNull()
+        val h = altoInput.text.toString().trim().toIntOrNull()
+        val d = dpiInput.text.toString().trim().toIntOrNull()
+        prefs().edit()
+            .putString("pkg", paqueteElegido ?: "")
+            .putString("dns", ultimaDns ?: "")
+            .putInt("hz", ultimoHz ?: 0)
+            .putInt("ancho", a ?: 0)
+            .putInt("alto", h ?: 0)
+            .putInt("dpi", d ?: 0)
+            .apply()
+        secLanzador.decir(
+            "perfil guardado: ${paqueteElegido ?: "sin juego"} · dns ${ultimaDns ?: "ninguno"} · " +
+                "hz ${ultimoHz ?: 0} · ${a ?: 0}x${h ?: 0} · dpi ${d ?: 0}"
+        )
+    }
+
+    private fun verPerfil() {
+        val p = prefs()
+        secLanzador.decir(
+            "juego " + (p.getString("pkg", "") ?: "").ifBlank { "ninguno" } +
+                " · dns " + (p.getString("dns", "") ?: "").ifBlank { "ninguno" } +
+                " · hz " + p.getInt("hz", 0) +
+                " · tamano " + p.getInt("ancho", 0) + "x" + p.getInt("alto", 0) +
+                " · dpi " + p.getInt("dpi", 0)
+        )
+    }
+
+    /** Aplica todo el perfil en orden y abre el juego; cada paso escribe su propia linea. */
+    private fun lanzarTodo() {
+        val p = prefs()
+        val pkg = p.getString("pkg", "")?.ifBlank { null }
+            ?: paqueteElegido?.also { p.edit().putString("pkg", it).apply() }
+        val dns = p.getString("dns", "")?.ifBlank { null }
+        val hz = p.getInt("hz", 0)
+        val a = p.getInt("ancho", 0)
+        val h = p.getInt("alto", 0)
+        val d = p.getInt("dpi", 0)
+        if (pkg == null) {
+            secLanzador.decir("elige el juego con el boton 1 primero")
+            return
+        }
+        secLanzador.decir("aplicando perfil para $pkg ...")
+        lanzar {
+            val lineas = ArrayList<String>()
+            if (dns != null) lineas.add("dns -> " + JvcCommands.ponDns(dns).resumen())
+            if (a > 0 && h > 0) {
+                val nativo = JvcCommands.tamanoNativo(this)
+                lineas.add("tamano ${a}x${h} -> " + JvcCommands.ponTamano(a, h, nativo).resumen())
+            }
+            if (d > 0) lineas.add("dpi $d -> " + JvcCommands.ponDensidad(d).resumen())
+            if (hz > 0) lineas.add("$hz Hz -> " + JvcCommands.ponHz(hz).resumen())
+            lineas.add("animaciones -> " + JvcCommands.animaCero().resumen())
+            lineas.add("ahorro bateria -> " + JvcCommands.ahorroOff().resumen())
+            val r = JvcCommands.fueraDeReposo(pkg)
+            lineas.add("juego fuera de Doze -> " + r.resumen())
+            overlayYJuego(pkg, lineas)
+        }
+    }
+
+    /** Ultimo paso dentro del hilo de fondo: overlay, abrir el juego y escribir el resumen. */
+    private fun overlayYJuego(pkg: String, lineas: ArrayList<String>) {
+        if (Settings.canDrawOverlays(this)) {
+            motivoOverlay = null
+            ContextCompat.startForegroundService(
+                this,
+                Intent(this, FpsOverlayService::class.java).putExtra("pkg", pkg)
+            )
+            Thread.sleep(1500)
+            lineas.add("overlay -> " + (motivoOverlay ?: "puesto"))
+        } else {
+            lineas.add("overlay -> SIN permiso: usa el boton del recuadro OVERLAY y acepta en Ajustes")
+        }
+        secLanzador.decir(lineas.joinToString("\n"))
+        abrirApp(secLanzador, pkg)
     }
 
     // ---------- Shizuku ----------
@@ -304,6 +432,7 @@ class MainActivity : AppCompatActivity() {
                             }
                             accion == "matar" -> sec.ejecutar("$pkg matar") { JvcCommands.mata(pkg) }
                             accion == "abrir" -> abrirApp(sec, pkg)
+                            accion == "perfil" -> sec.decir("juego del lanzador: $pkg · pulsa 2 para guardarlo y 3 para aplicar todo")
                         }
                     }
                     .show()
@@ -311,7 +440,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun pedirOverlayYMostrar(sec: Seccion, pkg: String) {
+    private fun pedirOverlayYMostrar(sec: Seccion, pkg: String?) {
         if (!Settings.canDrawOverlays(this)) {
             sec.decir("falta el permiso de overlay: toca Allow en la pantalla de Ajustes que se abre")
             startActivity(
@@ -320,11 +449,20 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
+        motivoOverlay = null
         ContextCompat.startForegroundService(
             this,
             Intent(this, FpsOverlayService::class.java).putExtra("pkg", pkg)
         )
-        sec.decir("overlay de FPS activo para $pkg")
+        sec.decir("overlay arrancando para ${pkg ?: "la app que este en pantalla"}")
+        lanzar {
+            Thread.sleep(1500)
+            val m = motivoOverlay
+            if (m != null) sec.decir(m) else if (pkg != null) {
+                val fg = JvcCommands.appEnPrimeroPlano()
+                sec.decir("contador activo · en pantalla: ${fg ?: "no se detecta"}")
+            }
+        }
     }
 
     private fun abrirApp(sec: Seccion, pkg: String) {
@@ -349,5 +487,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun loguea(m: String) = runOnUiThread {
         log.text = (m + "\n" + log.text).take(2500)
+    }
+
+    companion object {
+        /** El servicio escribe aqui si no pudo poner el panel, para que el recuadro lo diga. */
+        @Volatile var motivoOverlay: String? = null
     }
 }

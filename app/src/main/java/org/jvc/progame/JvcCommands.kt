@@ -106,6 +106,53 @@ object JvcCommands {
 
     fun soportaSuspension() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
+    // ---------- alto rendimiento ----------
+
+    /** Quita las animaciones: lo que mas se nota al tacto y lo unico "acelerador" legal sin root. */
+    fun animaCero(): ShellResult = ShizukuShell.ejecutar(
+        "settings put global window_animation_scale 0 && " +
+            "settings put global transition_animation_scale 0 && " +
+            "settings put global animator_duration_scale 0"
+    )
+
+    fun animaNormal(): ShellResult = ShizukuShell.ejecutar(
+        "settings put global window_animation_scale 1 && " +
+            "settings put global transition_animation_scale 1 && " +
+            "settings put global animator_duration_scale 1"
+    )
+
+    /** El ahorro de bateria es el que baja los nucleos: apagarlo antes de jugar. */
+    fun ahorroOff(): ShellResult =
+        ShizukuShell.ejecutar("settings put global low_power 0 ; cmd power set-mode 0")
+
+    /** Saca el juego de la lista de reposo de Doze para que la ROM no lo duerma ni le frene. */
+    fun fueraDeReposo(paquete: String): ShellResult =
+        if (!seguro(paquete)) mala(paquete) else ShizukuShell.ejecutar("dumpsys deviceidle whitelist +$paquete")
+
+    fun estadoTermico(): ShellResult =
+        ShizukuShell.ejecutar("dumpsys thermalservice | grep -E 'mStatus|Temperature|type'")
+
+    /**
+     * Frenos reales de CPU/GPU. Escalamos los nucleos por shell NO se puede (eso es root),
+     * pero si se puede leer y ensenar donde esta el limite puesto por el fabricante.
+     */
+    fun frenosCpu(): ShellResult = ShizukuShell.ejecutar(
+        "grep '' /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null; " +
+            "grep '' /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq 2>/dev/null"
+    )
+
+    private val RESUMIDA_RE = Regex("([A-Za-z0-9._]+)/[A-Za-z0-9._]+")
+
+    /** Que app esta realmente en pantalla ahora mismo, para que el contador funcione sin elegir nada. */
+    fun appEnPrimeroPlano(): String? {
+        val r = ShizukuShell.ejecutar(
+            "dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity'"
+        )
+        if (!r.ok) return null
+        val pkg = RESUMIDA_RE.find(r.out)?.groupValues?.get(1) ?: return null
+        return if (pkg.matches(PAQUETE_RE) && pkg != "android") pkg else null
+    }
+
     private val FRAME_RE = Regex("Total frames rendered:\\s*(\\d+)")
 
     fun fpsDe(paquete: String): Int? {

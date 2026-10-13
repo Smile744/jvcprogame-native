@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.Settings
 import android.view.Display
 import android.view.Gravity
 import android.view.WindowManager
@@ -25,8 +26,8 @@ import kotlin.math.roundToInt
 
 class FpsOverlayService : Service() {
 
-    private lateinit var wm: WindowManager
-    private lateinit var texto: TextView
+    private var wm: WindowManager? = null
+    private var texto: TextView? = null
     private var paquete: String? = null
     private val main = Handler(Looper.getMainLooper())
     private val pool = Executors.newSingleThreadExecutor()
@@ -37,18 +38,35 @@ class FpsOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         ShizukuShell.iniciar(this)
-        // Sin servicio en primer plano el sistema congela el bucle cuando abres el juego.
         startForeground(ID_NOTIF, notificacion(null))
-        wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        texto = TextView(this).apply {
+        if (!Settings.canDrawOverlays(this)) {
+            pintaGlobal("OVERLAY: falta el permiso de sobre otras apps")
+            stopSelf()
+            return
+        }
+        val w = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val t = TextView(this).apply {
             setTextColor(Color.parseColor("#00FFB7"))
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setBackgroundColor(Color.parseColor("#B3000000"))
             setPadding(14, 8, 14, 8)
         }
-        wm.addView(texto, parametros())
+        try {
+            w.addView(t, parametros())
+        } catch (e: Exception) {
+            pintaGlobal("OVERLAY rechazado: ${e.javaClass.simpleName}")
+            stopSelf()
+            return
+        }
+        wm = w
+        texto = t
         main.post { bucle() }
+    }
+
+    /** Si el panel no existe aun, el motivo va al registro de la activity. */
+    private fun pintaGlobal(m: String) {
+        MainActivity.motivoOverlay = m
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -62,7 +80,9 @@ class FpsOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             tipo,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -72,25 +92,43 @@ class FpsOverlayService : Service() {
     }
 
     private fun bucle() {
-        if (!corriendo) return
-        val pkg = paquete
-        if (pkg != null && ShizukuShell.listo()) {
-            pool.execute {
-                val fps = JvcCommands.fpsDe(pkg)
-                main.post { pinta(fps, pkg) }
-            }
+        if (!corriendo || texto == null) return
+        val elegido = paquete
+        if (!ShizukuShell.listo()) {
+            pinta(null, elegido, "Shizuku caido")
         } else {
-            main.post { pinta(null, pkg) }
+            pool.execute {
+                // Primero la app elegida; si no tira frames, se pregunta quien esta en pantalla.
+                var objetivo = elegido ?: JvcCommands.appEnPrimeroPlano()
+                var frames = objetivo?.let { JvcCommands.fpsDe(it) }
+                var motivo = if (objetivo == null) "sin app en pantalla" else ""
+                if ((frames == null || frames == 0) && elegido != null) {
+                    val enPantalla = JvcCommands.appEnPrimeroPlano()
+                    if (enPantalla != null && enPantalla != objetivo) {
+                        val segunda = JvcCommands.fpsDe(enPantalla)
+                        if (segunda != null && segunda > 0) {
+                            objetivo = enPantalla
+                            frames = segunda
+                            motivo = "(auto)"
+                        } else {
+                            motivo = "gfxinfo no cuenta frames de $enPantalla"
+                        }
+                    }
+                }
+                main.post { pinta(frames, objetivo, motivo) }
+            }
         }
         main.postDelayed({ bucle() }, 1000)
     }
 
-    private fun pinta(fps: Int?, pkg: String?) {
+    private fun pinta(fps: Int?, pkg: String?, motivo: String) {
+        val t = texto ?: return
         val hz = hzPantalla()
-        texto.text = when {
-            fps == null && pkg == null -> "Hz $hz | FPS: elige juego"
-            fps == null -> "Hz $hz | FPS: sin Shizuku"
-            else -> "Hz $hz | FPS $fps  ${pkg?.substringAfterLast('.') ?: ""}"
+        val nombre = pkg?.substringAfterLast('.') ?: "?"
+        t.text = when {
+            fps == null -> "Hz $hz | FPS sin dato $motivo"
+            fps == 0 -> "Hz $hz | FPS 0 $nombre $motivo"
+            else -> "Hz $hz | FPS $fps $nombre $motivo"
         }
     }
 
@@ -120,7 +158,7 @@ class FpsOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        paquete = intent?.getStringExtra("pkg")
+        intent?.getStringExtra("pkg")?.let { paquete = it }
         startForeground(ID_NOTIF, notificacion(paquete))
         return START_STICKY
     }
@@ -128,7 +166,7 @@ class FpsOverlayService : Service() {
     override fun onDestroy() {
         corriendo = false
         pool.shutdownNow()
-        try { wm.removeView(texto) } catch (e: Exception) { }
+        try { wm?.removeView(texto) } catch (e: Exception) { }
         super.onDestroy()
     }
 
