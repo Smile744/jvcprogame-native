@@ -36,6 +36,7 @@ class FpsOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        ShizukuShell.iniciar(this)
         // Sin servicio en primer plano el sistema congela el bucle cuando abres el juego.
         startForeground(ID_NOTIF, notificacion(null))
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -95,7 +96,7 @@ class FpsOverlayService : Service() {
 
     private fun hzPantalla(): Int {
         val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        val d = dm.getDisplay(DisplayManager.DEFAULT_DISPLAY)
+        val d = dm.getDisplay(Display.DEFAULT_DISPLAY)
         return try {
             d?.mode?.refreshRate?.roundToInt() ?: 0
         } catch (e: Exception) {

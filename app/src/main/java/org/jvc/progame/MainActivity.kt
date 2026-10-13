@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(construirUI())
+        ShizukuShell.iniciar(this)
         refrescarEstado()
     }
 
