@@ -11,18 +11,23 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@drawable/jvc_emblema"
         android:label="@string/app_name"
         android:theme="@style/Theme.JvcPro">
 
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.JvcSplash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
 
         <activity
             android:name=".MapaGatillosActivity"
