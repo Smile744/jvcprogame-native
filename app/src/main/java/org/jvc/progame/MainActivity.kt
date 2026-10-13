@@ -154,8 +154,11 @@ class MainActivity : AppCompatActivity() {
                 secDns.ejecutar("DNS $host") { JvcCommands.ponDns(host) }
             }
         }
-        secDns.boton("DNS: apagar") { secDns.ejecutar("DNS off") { JvcCommands.apagaDns() } }
-        secDns.boton("DNS: leer el actual") { secDns.lectura("DNS actual") { JvcCommands.leeDnsActual() } }
+        secDns.boton("DNS: APAGAR (si te quedaste sin Internet)") {
+            ultimaDns = null
+            secDns.ejecutar("DNS off") { JvcCommands.apagaDns() }
+        }
+        secDns.boton("DNS: como esta ahora") { secDns.lectura("DNS actual") { JvcCommands.leeDnsActual() } }
         anadir(secDns)
 
         secPantalla = Seccion("PANTALLA: ANCHO / ALTO / DPI")

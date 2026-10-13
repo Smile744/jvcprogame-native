@@ -8,16 +8,28 @@ import kotlin.math.roundToInt
 
 object JvcCommands {
 
-    // Hostnames DoT reales. Uno mal escrito corta el Internet del movil.
+    // Hostnames DoT reales y verificados. Android con DNS privado estricto NO vuelve al DNS
+    // normal: un nombre que no existe deja el movil sin Internet hasta apagarlo.
     val DNS_PRESETS = listOf(
         "AdGuard (bloquea anuncios)" to "dns.adguard-dns.com",
-        "Cloudflare (rapido)" to "dns.cloudflare-dns.com",
+        "Cloudflare (rapido)" to "one.one.one.one",
         "Quad9 (seguridad)" to "dns.quad9.net",
     )
 
+    private val HOST_RE = Regex("^[a-z0-9.-]{4,253}$")
+    private val IPv4_RE = Regex("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")
+
     fun ponDns(host: String): ShellResult {
-        if (!Regex("^[a-z0-9.-]+$").matches(host)) {
+        if (!HOST_RE.matches(host)) {
             return ShellResult(-3, "", "Hostname DNS invalido: $host")
+        }
+        // Prima el nombre: si no resuelve, aplicarlo corta el Internet del movil.
+        val prueba = ShizukuShell.ejecutar("nslookup $host")
+        if (!IPv4_RE.containsMatchIn(prueba.out)) {
+            return ShellResult(
+                -8, "",
+                "$host no resuelve ahora mismo, no lo aplico (te dejaria sin Internet)"
+            )
         }
         return ShizukuShell.ejecutar(
             "settings put global private_dns_mode hostname && " +
