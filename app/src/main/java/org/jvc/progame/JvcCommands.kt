@@ -41,6 +41,42 @@ object JvcCommands {
 
     fun leeDensidad(): ShellResult = ShizukuShell.ejecutar("wm density")
 
+    private val TAMANO_RE = Regex("Physical size:\\s*(\\d+)x(\\d+)")
+
+    /** Tamano real del panel, el que no cambia aunque ya haya un ajuste puesto. */
+    fun tamanoNativo(ctx: Context): Pair<Int, Int> {
+        TAMANO_RE.find(ShizukuShell.ejecutar("wm size").out)?.let {
+            return it.groupValues[1].toInt() to it.groupValues[2].toInt()
+        }
+        val dm = ctx.resources.displayMetrics
+        return dm.widthPixels to dm.heightPixels
+    }
+
+    /**
+     * Bajar de la mitad de la resolucion real deja la interfaz inservible y subir de la nativa
+     * rompe el compositor: esos dos limites son el freno para no dejar el movil colgado.
+     */
+    fun ponTamano(ancho: Int, alto: Int, nativo: Pair<Int, Int>): ShellResult {
+        val (nw, nh) = nativo
+        if (ancho > alto) return ShellResult(-7, "", "Android exige ancho <= alto (pediste ${ancho}x${alto})")
+        val minW = nw / 2
+        val minH = nh / 2
+        if (ancho !in minW..nw || alto !in minH..nh) {
+            return ShellResult(
+                -7, "",
+                "Fuera de limite seguro: ancho entre $minW y $nw, alto entre $minH y $nh " +
+                    "(nativo ${nw}x${nh}, pediste ${ancho}x${alto})"
+            )
+        }
+        return ShizukuShell.ejecutar("wm size ${ancho}x${alto}")
+    }
+
+    fun reseteaTamano(): ShellResult = ShizukuShell.ejecutar("wm size reset")
+
+    fun leeTamano(): ShellResult = ShizukuShell.ejecutar("wm size")
+
+    fun reseteaPantalla(): ShellResult = ShizukuShell.ejecutar("wm size reset && wm density reset")
+
     // user_refresh_rate no lo respetan todos los fabricantes: puede decir OK y no cambiar nada.
     fun ponHz(valor: Int): ShellResult {
         if (valor !in 30..165) return ShellResult(-5, "", "Hz fuera de rango")

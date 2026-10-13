@@ -1,6 +1,7 @@
 package org.jvc.progame
 
 import android.content.Intent
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -22,7 +23,15 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var log: TextView
     private lateinit var estado: TextView
-    private lateinit var densidadInput: EditText
+    private lateinit var secShizuku: Seccion
+    private lateinit var secDns: Seccion
+    private lateinit var secPantalla: Seccion
+    private lateinit var secHz: Seccion
+    private lateinit var secOverlay: Seccion
+    private lateinit var secCongelador: Seccion
+    private lateinit var anchoInput: EditText
+    private lateinit var altoInput: EditText
+    private lateinit var dpiInput: EditText
     private var paqueteElegido: String? = null
     private var nombresApps: List<String> = emptyList()
     private var paquetesApps: List<String> = emptyList()
@@ -32,11 +41,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(construirUI())
         ShizukuShell.iniciar(this)
         refrescarEstado()
-        // El diagnostico tarda: que el resultado aparezca solo, sin pulsar nada.
-        lanzar {
-            loguea("probando el canal de comandos...")
-            loguea("arranque · " + ShizukuShell.pruebaServicio())
-        }
+        lanzar { secShizuku.decir(ShizukuShell.pruebaServicio()) }
     }
 
     override fun onResume() {
@@ -44,12 +49,68 @@ class MainActivity : AppCompatActivity() {
         refrescarEstado()
     }
 
+    /** Recuadro con su titulo y su propio resultado, para no depender del registro de abajo. */
+    private inner class Seccion(val titulo: String) {
+
+        private val salida = TextView(this@MainActivity).apply {
+            textSize = 14f
+            setTextColor(0xFF00FFB7.toInt())
+            setPadding(6, 4, 6, 8)
+        }
+
+        val caja = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20, 4, 20, 10)
+            background = GradientDrawable().apply {
+                setColor(0xFF16161A.toInt())
+                setStroke(2, 0xFF3A3A46.toInt())
+                cornerRadius = 20f
+            }
+        }
+
+        init {
+            caja.addView(TextView(this@MainActivity).apply {
+                text = titulo
+                textSize = 15f
+                setTextColor(0xFFC81919.toInt())
+                setPadding(0, 12, 0, 4)
+            })
+            caja.addView(salida)
+        }
+
+        fun boton(texto: String, accion: () -> Unit) = caja.addBoton(texto, accion)
+
+        fun campo(pista: String): EditText {
+            val e = EditText(this@MainActivity).apply {
+                hint = pista
+                textSize = 15f
+                setTextColor(0xFFFFFFFF.toInt())
+            }
+            caja.addView(e)
+            return e
+        }
+
+        fun decir(texto: String) {
+            runOnUiThread { salida.text = texto }
+            loguea("$titulo: $texto")
+        }
+
+        fun ejecutar(etiqueta: String, orden: () -> ShellResult) = lanzar {
+            decir("$etiqueta -> ${orden().resumen()}")
+        }
+
+        fun lectura(etiqueta: String, orden: () -> ShellResult) = lanzar {
+            val r = orden()
+            decir("$etiqueta -> ${if (r.ok) r.out.trim().ifBlank { "sin dato" } else r.resumen()}")
+        }
+    }
+
     // ---------- UI ----------
 
     private fun construirUI(): ScrollView {
         val raiz = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 28, 28, 28)
+            setPadding(24, 24, 24, 24)
         }
 
         raiz.addView(TextView(this).apply {
@@ -59,83 +120,82 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 56))
 
-        estado = TextView(this).apply { textSize = 14f; setTextColor(0xFFAAAAAA.toInt()) }
+        estado = TextView(this).apply { textSize = 13f; setTextColor(0xFFAAAAAA.toInt()) }
         raiz.addView(estado)
 
-        raiz.addBoton("Conceder permiso a Shizuku") { pedirPermisoShizuku() }
-        raiz.addBoton("Comprobar estado Shizuku") {
-            lanzar { loguea("Shizuku vivo: ${ShizukuShell.binderVivo()} · permiso: ${ShizukuShell.permisoConcedido()}") }
-        }
-        raiz.addBoton("Probar servicio de comandos") {
-            lanzar { loguea(ShizukuShell.pruebaServicio()) }
-        }
+        fun anadir(s: Seccion) = raiz.addView(
+            s.caja,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 18, 0, 0) }
+        )
 
-        raiz.addTitulo("DNS PRIVADO")
+        secShizuku = Seccion("SHIZUKU")
+        secShizuku.boton("Conceder permiso a Shizuku") { pedirPermisoShizuku() }
+        secShizuku.boton("Comprobar estado") {
+            lanzar { secShizuku.decir("vivo: ${ShizukuShell.binderVivo()} · permiso: ${ShizukuShell.permisoConcedido()}") }
+        }
+        secShizuku.boton("Probar servicio de comandos") {
+            lanzar { secShizuku.decir(ShizukuShell.pruebaServicio()) }
+        }
+        anadir(secShizuku)
+
+        secDns = Seccion("DNS PRIVADO")
         JvcCommands.DNS_PRESETS.forEach { (nombre, host) ->
-            raiz.addBoton("DNS: $nombre") {
-                lanzar { val r = JvcCommands.ponDns(host); loguea("DNS $host -> ${r.resumen()}") }
-            }
+            secDns.boton("DNS: $nombre") { secDns.ejecutar("DNS $host") { JvcCommands.ponDns(host) } }
         }
-        raiz.addBoton("DNS: apagar") { lanzar { loguea("DNS off -> ${JvcCommands.apagaDns().resumen()}") } }
-        raiz.addBoton("DNS: leer el actual") { lanzar { val r = JvcCommands.leeDnsActual(); loguea(r.out.ifBlank { r.resumen() }) } }
+        secDns.boton("DNS: apagar") { secDns.ejecutar("DNS off") { JvcCommands.apagaDns() } }
+        secDns.boton("DNS: leer el actual") { secDns.lectura("DNS actual") { JvcCommands.leeDnsActual() } }
+        anadir(secDns)
 
-        raiz.addTitulo("DENSIDAD (DPI)")
-        densidadInput = EditText(this).apply {
-            hint = "ej. 440 (160-640)"
-            setTextColor(0xFFFFFFFF.toInt())
+        secPantalla = Seccion("PANTALLA: ANCHO / ALTO / DPI")
+        anchoInput = secPantalla.campo("ancho en px, ej. 900")
+        altoInput = secPantalla.campo("alto en px, ej. 2000")
+        dpiInput = secPantalla.campo("dpi, ej. 440")
+        secPantalla.boton("Aplicar") { aplicarPantalla() }
+        secPantalla.boton("Ver resolucion nativa y limites") { verLimites() }
+        secPantalla.boton("Dejarlo como estaba (reset)") {
+            secPantalla.ejecutar("reset de pantalla") { JvcCommands.reseteaPantalla() }
         }
-        raiz.addView(densidadInput)
-        raiz.addBoton("Aplicar densidad") {
-            val v = densidadInput.text.toString().trim().toIntOrNull()
-            if (v == null) loguea("Densidad: no es un numero")
-            else lanzar { loguea("wm density $v -> ${JvcCommands.ponDensidad(v).resumen()}") }
-        }
-        raiz.addBoton("Resetear densidad") { lanzar { loguea("reset -> ${JvcCommands.reseteaDensidad().resumen()}") } }
-        raiz.addBoton("Leer densidad") { lanzar { val r = JvcCommands.leeDensidad(); loguea(r.out.ifBlank { r.resumen() }) } }
+        anadir(secPantalla)
 
-        raiz.addTitulo("REFRESH RATE")
+        secHz = Seccion("REFRESH RATE")
         listOf(60, 90, 120).forEach { hz ->
-            raiz.addBoton("Forzar $hz Hz") {
-                lanzar {
-                    val r = JvcCommands.ponHz(hz)
-                    loguea("$hz Hz -> ${r.resumen()} (algunos fabricantes lo ignoran)")
-                }
+            secHz.boton("Forzar $hz Hz") {
+                secHz.ejecutar("$hz Hz (algun fabricante lo ignora)") { JvcCommands.ponHz(hz) }
             }
         }
+        anadir(secHz)
 
-        raiz.addTitulo("OVERLAY FPS + Hz")
-        raiz.addBoton("Elegir juego y lanzar contador") { elegirJuego(porOverlay = true) }
-        raiz.addBoton("Quitar overlay") {
+        secOverlay = Seccion("OVERLAY FPS + Hz")
+        secOverlay.boton("Elegir juego y lanzar contador") { elegirJuego(secOverlay, porOverlay = true) }
+        secOverlay.boton("Quitar overlay") {
             stopService(Intent(this, FpsOverlayService::class.java))
-            loguea("Overlay quitado")
+            secOverlay.decir("overlay quitado")
         }
+        anadir(secOverlay)
 
-        raiz.addTitulo("CONGELADOR")
-        raiz.addBoton("Elegir app y congelarla") { elegirJuego(porOverlay = false, accion = "congelar") }
-        raiz.addBoton("Elegir app y descongelarla") { elegirJuego(porOverlay = false, accion = "descongelar") }
-        raiz.addBoton("Elegir app y matarla") { elegirJuego(porOverlay = false, accion = "matar") }
-        raiz.addBoton("Elegir app y abrirla") { elegirJuego(porOverlay = false, accion = "abrir") }
+        secCongelador = Seccion("CONGELADOR")
+        secCongelador.boton("Elegir app y congelarla") { elegirJuego(secCongelador, accion = "congelar") }
+        secCongelador.boton("Elegir app y descongelarla") { elegirJuego(secCongelador, accion = "descongelar") }
+        secCongelador.boton("Elegir app y matarla") { elegirJuego(secCongelador, accion = "matar") }
+        secCongelador.boton("Elegir app y abrirla") { elegirJuego(secCongelador, accion = "abrir") }
+        anadir(secCongelador)
 
-        raiz.addTitulo("REGISTRO")
+        val registro = Seccion("REGISTRO")
         log = TextView(this).apply {
-            textSize = 13f
+            textSize = 12f
             setTextColor(0xFF00FFB7.toInt())
-            text = ""
         }
-        raiz.addView(log)
+        registro.caja.addView(log)
+        anadir(registro)
 
         return ScrollView(this).apply {
             addView(raiz)
             setBackgroundColor(0xFF0D0D0F.toInt())
         }
     }
-
-    private fun LinearLayout.addTitulo(t: String) = addView(TextView(this@MainActivity).apply {
-        text = t
-        textSize = 15f
-        setTextColor(0xFFC81919.toInt())
-        setPadding(0, 28, 0, 6)
-    })
 
     private fun LinearLayout.addBoton(texto: String, accion: () -> Unit) = addView(
         Button(this@MainActivity).apply {
@@ -145,22 +205,55 @@ class MainActivity : AppCompatActivity() {
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
     )
 
+    // ---------- pantalla ----------
+
+    private fun aplicarPantalla() {
+        val a = anchoInput.text.toString().trim().toIntOrNull()
+        val h = altoInput.text.toString().trim().toIntOrNull()
+        val d = dpiInput.text.toString().trim().toIntOrNull()
+        when {
+            a == null && h == null && d == null -> secPantalla.decir("rellena ancho+alto, o al menos el dpi")
+            (a == null) != (h == null) -> secPantalla.decir("para el tamano hacen falta ancho Y alto a la vez")
+            else -> lanzar {
+                val partes = ArrayList<String>()
+                if (a != null && h != null) {
+                    val nativo = JvcCommands.tamanoNativo(this)
+                    partes.add("tamano ${a}x${h} -> " + JvcCommands.ponTamano(a, h, nativo).resumen())
+                }
+                if (d != null) partes.add("dpi $d -> " + JvcCommands.ponDensidad(d).resumen())
+                secPantalla.decir(partes.joinToString(" · "))
+            }
+        }
+    }
+
+    private fun verLimites() {
+        lanzar {
+            val (nw, nh) = JvcCommands.tamanoNativo(this)
+            val tam = JvcCommands.leeTamano()
+            val den = JvcCommands.leeDensidad()
+            secPantalla.decir(
+                "nativo ${nw}x${nh} · permitido ancho ${nw / 2}-$nw, alto ${nh / 2}-$nh\n" +
+                    tam.out.trim() + "\ndensidad: " + den.out.trim()
+            )
+        }
+    }
+
     // ---------- Shizuku ----------
 
     private fun pedirPermisoShizuku() {
         if (!ShizukuShell.binderVivo()) {
-            loguea("Shizuku no esta corriendo. Abre la app Shizuku y activalo (pairing inalambrico).")
+            secShizuku.decir("Shizuku no esta corriendo: abre la app Shizuku y activalo")
             return
         }
         if (ShizukuShell.permisoConcedido()) {
-            loguea("Ya tienes el permiso concedido.")
+            secShizuku.decir("ya tienes el permiso concedido")
             return
         }
         try {
             Shizuku.requestPermission(0)
-            loguea("Permiso pedido: acepta el popup de Shizuku.")
+            secShizuku.decir("permiso pedido: acepta el popup de Shizuku")
         } catch (e: Exception) {
-            loguea("Fallo al pedir permiso: ${e.message}")
+            secShizuku.decir("fallo al pedir permiso: ${e.message}")
         }
     }
 
@@ -186,13 +279,13 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- acciones ----------
 
-    private fun elegirJuego(porOverlay: Boolean, accion: String? = null) {
+    private fun elegirJuego(sec: Seccion, porOverlay: Boolean = false, accion: String? = null) {
         lanzar {
             val lista = JvcCommands.appsInstaladas(this)
             nombresApps = lista.map { it.first }
             paquetesApps = lista.map { it.second }
             if (nombresApps.isEmpty()) {
-                loguea("No encuentro apps de usuario instaladas.")
+                sec.decir("no encuentro apps de usuario instaladas")
                 return@lanzar
             }
             runOnUiThread {
@@ -203,14 +296,14 @@ class MainActivity : AppCompatActivity() {
                         paqueteElegido = pkg
                         refrescarEstado()
                         when {
-                            porOverlay -> pedirOverlayYMostrar(pkg)
-                            accion == "congelar" -> lanzar { loguea("$pkg congelar -> ${JvcCommands.congela(pkg).resumen()}") }
-                            accion == "descongelar" -> lanzar {
-                                if (!JvcCommands.soportaSuspension()) loguea("pm unsuspend necesita Android 12+. Usa 'matar'.")
-                                else loguea("$pkg descongelar -> ${JvcCommands.descongela(pkg).resumen()}")
+                            porOverlay -> pedirOverlayYMostrar(sec, pkg)
+                            accion == "congelar" -> sec.ejecutar("$pkg congelar") { JvcCommands.congela(pkg) }
+                            accion == "descongelar" -> {
+                                if (!JvcCommands.soportaSuspension()) sec.decir("pm unsuspend necesita Android 12+. Usa 'matar'.")
+                                else sec.ejecutar("$pkg descongelar") { JvcCommands.descongela(pkg) }
                             }
-                            accion == "matar" -> lanzar { loguea("$pkg matar -> ${JvcCommands.mata(pkg).resumen()}") }
-                            accion == "abrir" -> abrirApp(pkg)
+                            accion == "matar" -> sec.ejecutar("$pkg matar") { JvcCommands.mata(pkg) }
+                            accion == "abrir" -> abrirApp(sec, pkg)
                         }
                     }
                     .show()
@@ -218,9 +311,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun pedirOverlayYMostrar(pkg: String) {
+    private fun pedirOverlayYMostrar(sec: Seccion, pkg: String) {
         if (!Settings.canDrawOverlays(this)) {
-            loguea("Falta el permiso de overlay: toca Allow en la pantalla de Ajustes que se abre.")
+            sec.decir("falta el permiso de overlay: toca Allow en la pantalla de Ajustes que se abre")
             startActivity(
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -231,13 +324,17 @@ class MainActivity : AppCompatActivity() {
             this,
             Intent(this, FpsOverlayService::class.java).putExtra("pkg", pkg)
         )
-        loguea("Overlay de FPS activo para $pkg")
+        sec.decir("overlay de FPS activo para $pkg")
     }
 
-    private fun abrirApp(pkg: String) {
+    private fun abrirApp(sec: Seccion, pkg: String) {
         val it = packageManager.getLaunchIntentForPackage(pkg)
-        if (it == null) loguea("$pkg no tiene actividad de lanzamiento.")
-        else startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        if (it == null) {
+            sec.decir("$pkg no tiene actividad de lanzamiento")
+        } else {
+            startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            sec.decir("abierta $pkg")
+        }
     }
 
     private fun lanzar(bloque: () -> Unit) {
@@ -245,10 +342,12 @@ class MainActivity : AppCompatActivity() {
             try {
                 bloque()
             } catch (e: Exception) {
-                runOnUiThread { loguea("Excepcion: ${e.javaClass.simpleName} ${e.message}") }
+                loguea("Excepcion: ${e.javaClass.simpleName} ${e.message}")
             }
         }.start()
     }
 
-    private fun loguea(m: String) = runOnUiThread { log.text = "$m\n${log.text}" }
+    private fun loguea(m: String) = runOnUiThread {
+        log.text = (m + "\n" + log.text).take(2500)
+    }
 }
