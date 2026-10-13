@@ -11,8 +11,8 @@ android {
         applicationId = "org.jvc.progame"
         minSdk = 24
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.0-r13"
+        versionCode = 14
+        versionName = "1.0-r14"
     }
 
     buildTypes {
