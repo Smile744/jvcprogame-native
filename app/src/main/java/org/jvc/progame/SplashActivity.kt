@@ -80,12 +80,17 @@ class SplashActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 topMargin = 26
             })
-            addView(pista, LinearLayout.LayoutParams(340, 8, Gravity.CENTER).apply { topMargin = 34 })
+            addView(pista, LinearLayout.LayoutParams(340, 8).apply {
+                gravity = Gravity.CENTER
+                topMargin = 34
+            })
             addView(pie, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            ).apply { topMargin = 18 })
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER
+                topMargin = 18
+            })
         }
 
         val raiz = LinearLayout(this).apply {
