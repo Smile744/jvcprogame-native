@@ -38,6 +38,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cadenciaInput: EditText
     private lateinit var modoInput: EditText
     private lateinit var secGatillos: Seccion
+    private lateinit var secMira: Seccion
+    private lateinit var tamanoMiraInput: EditText
+    private lateinit var grosorMiraInput: EditText
+    private lateinit var desfaseMiraInput: EditText
     private var paqueteElegido: String? = null
     private var ultimaDns: String? = null
     private var ultimoHz: Int? = null
@@ -248,6 +252,26 @@ class MainActivity : AppCompatActivity() {
         secGatillos.boton("Recordarme los valores guardados") { verGatillos() }
         anadir(secGatillos)
 
+        secMira = Seccion("MIRA SUPERPUESTA (crosshair)")
+        listOf(
+            "cruz" to 1, "cruz con hueco" to 2, "circulo" to 3, "punto" to 4, "circulo con cruz" to 5,
+        ).forEach { (nombre, estilo) ->
+            secMira.boton("Estilo: $nombre") { aplicarMira(estilo = estilo) }
+        }
+        listOf(
+            "verde" to MiraPrefs.COLOR_VERDE, "rojo" to MiraPrefs.COLOR_ROJO,
+            "blanco" to MiraPrefs.COLOR_BLANCO, "amarillo" to MiraPrefs.COLOR_AMARILLO,
+            "cian" to MiraPrefs.COLOR_CIAN,
+        ).forEach { (nombre, color) ->
+            secMira.boton("Color: $nombre") { aplicarMira(color = color) }
+        }
+        tamanoMiraInput = secMira.campo("tamano en px, ej. 60")
+        grosorMiraInput = secMira.campo("grosor en px, ej. 4")
+        desfaseMiraInput = secMira.campo("desfase vertical px, + baja la mira")
+        secMira.boton("Aplicar tamano y grosor") { aplicarMedidasMira() }
+        secMira.boton("QUITAR mira y contador") { aplicarMira(activa = false) }
+        anadir(secMira)
+
         secLanzador = Seccion("LANZADOR: TODO DE UN GOLPE")
         secLanzador.boton("1. Elegir el juego del lanzador") { elegirJuego(secLanzador, accion = "perfil") }
         secLanzador.boton("2. Guardar perfil con lo de las casillas") { guardarPerfil() }
@@ -314,6 +338,65 @@ class MainActivity : AppCompatActivity() {
                 "nativo ${nw}x${nh} · permitido ancho ${nw / 2}-$nw, alto ${nh / 2}-$nh\n" +
                     tam.out.trim() + "\ndensidad: " + den.out.trim()
             )
+        }
+    }
+
+    // ---------- mira ----------
+
+    /**
+     * La mira vive en Preferencias y el servicio la lee cada segundo: cambiar estilo o color
+     * aqui se nota en el juego sin tener que quitar y volver a poner el overlay.
+     */
+    private fun aplicarMira(
+        activa: Boolean = true,
+        estilo: Int? = null,
+        color: Int? = null,
+        tamano: Int? = null,
+        grosor: Int? = null,
+        desfase: Int? = null,
+    ) {
+        val viejo = MiraPrefs.leer(this)
+        val nuevo = viejo.copy(
+            activa = activa,
+            estilo = estilo ?: viejo.estilo,
+            color = color ?: viejo.color,
+            tamano = tamano ?: viejo.tamano,
+            grosor = grosor ?: viejo.grosor,
+            desfaseY = desfase ?: viejo.desfaseY,
+        )
+        MiraPrefs.escribir(this, nuevo)
+        if (!activa) {
+            stopService(Intent(this, FpsOverlayService::class.java))
+            secMira.decir("mira y overlay quitados")
+            return
+        }
+        secMira.decir(
+            "mira: estilo ${nuevo.estilo} · ${nuevo.tamano}px · grosor ${nuevo.grosor} · " +
+                "desfase ${nuevo.desfaseY} · color ${nombreColor(nuevo.color)}\n" +
+                "solo dibuja: no intercepta ningún toque, el dedo llega al juego igual."
+        )
+        pedirOverlayYMostrar(secMira, paqueteElegido)
+    }
+
+    private fun nombreColor(c: Int): String = when (c) {
+        MiraPrefs.COLOR_VERDE -> "verde"
+        MiraPrefs.COLOR_ROJO -> "rojo"
+        MiraPrefs.COLOR_BLANCO -> "blanco"
+        MiraPrefs.COLOR_AMARILLO -> "amarillo"
+        MiraPrefs.COLOR_CIAN -> "cian"
+        else -> Integer.toHexString(c)
+    }
+
+    private fun aplicarMedidasMira() {
+        val t = tamanoMiraInput.text.toString().trim().toIntOrNull()
+        val g = grosorMiraInput.text.toString().trim().toIntOrNull()
+        val d = desfaseMiraInput.text.toString().trim().toIntOrNull()
+        when {
+            t == null && g == null && d == null -> secMira.decir("rellena tamano o grosor")
+            t != null && t !in 10..600 -> secMira.decir("tamano entre 10 y 600 px")
+            g != null && g !in 1..40 -> secMira.decir("grosor entre 1 y 40 px")
+            d != null && d !in -1200..1200 -> secMira.decir("desfase entre -1200 y 1200 px")
+            else -> aplicarMira(tamano = t, grosor = g, desfase = d)
         }
     }
 
