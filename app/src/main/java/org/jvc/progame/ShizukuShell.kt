@@ -22,6 +22,7 @@ object ShizukuShell {
     @Volatile private var servicio: IJvcUserService? = null
     @Volatile private var componente: ComponentName? = null
     @Volatile private var encurso: CountDownLatch? = null
+    @Volatile private var ultimoError: String? = null
 
     private val conexion = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -46,16 +47,33 @@ object ShizukuShell {
 
     fun listo() = binderVivo() && permisoConcedido()
 
-    /** Lanza el servicio shell por adelantado para que el primer boton no espere el bind. */
+    /** Lanza el servicio shell por adelantado, siempre fuera del hilo principal. */
     fun iniciar(ctx: Context) {
         componente = ComponentName(ctx.packageName, JvcUserService::class.java.name)
-        if (listo() && servicio == null) enlazar()
+        if (listo() && servicio == null) Thread { enlazar() }.start()
     }
+
+    /** Un boton que dice en el registro por que no levanto el servicio. */
+    fun pruebaServicio(): String {
+        if (!binderVivo()) return "Shizuku apagado: abre la app Shizuku y activalo"
+        if (!permisoConcedido()) return "Falta el permiso: pulsa Conceder permiso a Shizuku"
+        ultimoError = null
+        val s = servicio() ?: return "Bind fallido: ${ultimoError ?: "sin motivo"} · Shizuku ${versionTexto()}"
+        val r = try {
+            s.exec("id")
+        } catch (e: Exception) {
+            return "Servicio conectado pero exec rechaza: ${e.javaClass.simpleName}: ${e.message}"
+        }
+        return "Servicio OK · Shizuku ${versionTexto()} · ${r.split(SEP).getOrElse(1) { r }}"
+    }
+
+    private fun versionTexto() = try { "v" + Shizuku.getVersion() } catch (e: Exception) { "?" }
 
     fun ejecutar(cmd: String): ShellResult {
         val s = servicio() ?: return ShellResult(
             -1, "",
-            if (listo()) "No arranco el servicio shell de Shizuku" else "Shizuku no esta activo o falta el permiso"
+            if (listo()) "No arranco el servicio shell: ${ultimoError ?: "sin motivo"}"
+            else "Shizuku no esta activo o falta el permiso"
         )
         return try {
             val partes = s.exec(cmd).split(SEP)
@@ -79,7 +97,10 @@ object ShizukuShell {
     }
 
     private fun enlazar(): IJvcUserService? {
-        val c = componente ?: return null
+        val c = componente ?: run {
+            ultimoError = "la app no llamo a iniciar()"
+            return null
+        }
         val espera: CountDownLatch
         val debeEnlazar: Boolean
         synchronized(this) {
@@ -100,18 +121,22 @@ object ShizukuShell {
                         .daemon(false)
                         .processNameSuffix("shell")
                         .debuggable(false)
-                        .version(1),
+                        .version(2),
                     conexion
                 )
             } catch (e: Exception) {
+                ultimoError = "bindUserService lanzo ${e.javaClass.simpleName}: ${e.message}"
                 synchronized(this) { if (encurso === espera) encurso = null }
                 return null
             }
         }
         // El callback de conexion se entrega en el hilo principal: bloquearlo seria deadlock.
         if (Looper.myLooper() == Looper.getMainLooper()) return null
-        if (!espera.await(15, TimeUnit.SECONDS)) {
+        if (!espera.await(20, TimeUnit.SECONDS)) {
+            ultimoError = "Shizuku no devolvio el servicio en 20 s"
             synchronized(this) { if (encurso === espera) encurso = null }
+            // Si esperabamos el precalentamiento, lanzamos un bind propio antes de rendirnos.
+            if (!debeEnlazar) return enlazar()
         }
         return servicio
     }

@@ -61,6 +61,9 @@ class MainActivity : AppCompatActivity() {
         raiz.addBoton("Comprobar estado Shizuku") {
             lanzar { loguea("Shizuku vivo: ${ShizukuShell.binderVivo()} · permiso: ${ShizukuShell.permisoConcedido()}") }
         }
+        raiz.addBoton("Probar servicio de comandos") {
+            lanzar { loguea(ShizukuShell.pruebaServicio()) }
+        }
 
         raiz.addTitulo("DNS PRIVADO")
         JvcCommands.DNS_PRESETS.forEach { (nombre, host) ->
