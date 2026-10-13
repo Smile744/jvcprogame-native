@@ -23,6 +23,7 @@ object ShizukuShell {
     @Volatile private var componente: ComponentName? = null
     @Volatile private var encurso: CountDownLatch? = null
     @Volatile private var ultimoError: String? = null
+    @Volatile private var sello: String = "?"
 
     private val conexion = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -47,10 +48,15 @@ object ShizukuShell {
 
     fun listo() = binderVivo() && permisoConcedido()
 
-    /** Lanza el servicio shell por adelantado, fuera del hilo principal y solo si hace falta. */
+    /** Guarda el numero de build en el texto de los errores y precalenta el servicio si hace falta. */
     fun iniciar(ctx: Context) {
         componente = ComponentName(ctx.packageName, JvcUserService::class.java.name)
-        if (metodoProceso == null && listo() && servicio == null) Thread { enlazar() }.start()
+        sello = try {
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
+        } catch (e: Exception) {
+            "?"
+        }
+        if (canal == null && listo() && servicio == null) Thread { enlazar() }.start()
     }
 
     /** Un boton que dice en el registro por que no levanto el servicio. */
@@ -58,12 +64,13 @@ object ShizukuShell {
         if (!binderVivo()) return "Shizuku apagado: abre la app Shizuku y activalo"
         if (!permisoConcedido()) return "Falta el permiso: pulsa Conceder permiso a Shizuku"
         ultimoError = null
+        val nombre = canal?.first ?: "ninguno"
         val remoto = porProcesoRemoto("id")
         if (remoto != null && remoto.ok) {
-            return "Proceso remoto OK · Shizuku ${versionTexto()} · ${remoto.out.trim()}"
+            return "Canal $nombre OK · Shizuku ${versionTexto()} · ${remoto.out.trim()}"
         }
-        val motivoRemoto = remoto?.let { "proceso remoto: ${it.err}" } ?: "la libreria no trae newProcess"
-        val s = servicio() ?: return "Ningun canal vale · $motivoRemoto · bind: ${ultimoError ?: "sin motivo"} · Shizuku ${versionTexto()}"
+        val motivoRemoto = remoto?.let { "$nombre: ${it.err}" } ?: "no hay canal directo"
+        val s = servicio() ?: return "[$sello] ningun canal vale · $motivoRemoto · bind: ${ultimoError ?: "sin motivo"} · Shizuku ${versionTexto()}"
         val r = try {
             s.exec("id")
         } catch (e: Exception) {
@@ -75,31 +82,65 @@ object ShizukuShell {
     private fun versionTexto() = try { "v" + Shizuku.getVersion() } catch (e: Exception) { "?" }
 
     /**
-     * Shizuku puede lanzar procesos hijo del propio daemon shell sin crear un UserService.
-     * El metodo existe en la libreria pero es privado, asi que se invoca por reflexion.
+     * Shizuku puede lanzar procesos hijo de su propio daemon shell sin crear un UserService.
+     * El metodo esta en la libreria pero es privado, y su firma ha cambiado entre versiones,
+     * por eso se busca por nombre y se construyen los argumentos segun los parametros reales.
      */
-    private val metodoProceso by lazy {
-        try {
-            Shizuku::class.java.getDeclaredMethod(
-                "newProcess",
-                Array<String>::class.java,
-                Array<String>::class.java,
-                String::class.java
-            ).apply { isAccessible = true }
+    private fun canalPorMetodo(): ((String) -> Process)? {
+        val m = try {
+            Shizuku::class.java.declaredMethods
+                .firstOrNull { it.name == "newProcess" && it.parameterTypes.isNotEmpty() }
+                ?.apply { isAccessible = true }
+        } catch (e: Exception) {
+            null
+        } ?: return null
+        val idx = m.parameterTypes.indexOfFirst { it.isArray && it.componentType == String::class.java }
+        if (idx < 0) return null
+        return { cmd: String ->
+            val args = arrayOfNulls<Any>(m.parameterTypes.size)
+            args[idx] = arrayOf("sh", "-c", cmd)
+            m.invoke(null, *args) as Process
+        }
+    }
+
+    /** Segunda via: la interfaz del daemon, saltandose el envoltorio de la libreria. */
+    private fun canalPorServicio(): ((String) -> Process)? {
+        return try {
+            val binder = Shizuku::class.java.getMethod("getBinder").invoke(null) as? IBinder
+            val svc = binder?.let {
+                Class.forName("moe.shizuku.server.IShizukuService${'$'}Stub")
+                    .getMethod("asInterface", IBinder::class.java)
+                    .invoke(null, it)
+            }
+            val np = svc?.javaClass?.methods?.firstOrNull { it.name == "newProcess" }
+            val ctor = Class.forName("rikka.shizuku.ShizukuRemoteProcess").declaredConstructors
+                .firstOrNull { it.parameterTypes.size == 1 }
+                ?.apply { isAccessible = true }
+            if (svc == null || np == null || ctor == null) null else { cmd: String ->
+                val args = arrayOfNulls<Any>(np.parameterTypes.size)
+                val i = np.parameterTypes.indexOfFirst { it.isArray && it.componentType == String::class.java }
+                if (i >= 0) args[i] = arrayOf("sh", "-c", cmd)
+                ctor.newInstance(np.invoke(svc, *args)!!) as Process
+            }
         } catch (e: Exception) {
             null
         }
     }
 
-    /** Devuelve null solo cuando la libreria no ofrece ese metodo; los demas casos dan respuesta. */
+    private val canal by lazy {
+        canalPorMetodo()?.let { Pair("envoltorio", it) }
+            ?: canalPorServicio()?.let { Pair("daemon", it) }
+    }
+
+    /** Devuelve null solo cuando ningun canal directo existe; los demas casos dan respuesta. */
     private fun porProcesoRemoto(cmd: String): ShellResult? {
-        val m = metodoProceso ?: return null
+        val abrir = canal?.second ?: return null
         val proc = try {
-            m.invoke(null, arrayOf("sh", "-c", cmd), null, null) as? Process
+            abrir(cmd)
         } catch (e: Exception) {
             val c = if (e is java.lang.reflect.InvocationTargetException) e.targetException else e
-            return ShellResult(-3, "", "newProcess rechazo: ${c.javaClass.simpleName}: ${c.message}")
-        } ?: return ShellResult(-3, "", "newProcess devolvio vacio")
+            return ShellResult(-3, "", "el proceso remoto fue rechazado: ${c.javaClass.simpleName}: ${c.message}")
+        }
         return try {
             var err = ""
             val hilo = Thread {
@@ -120,7 +161,7 @@ object ShizukuShell {
         porProcesoRemoto(cmd)?.let { return it }
         val s = servicio() ?: return ShellResult(
             -1, "",
-            if (listo()) "No arranco el servicio shell: ${ultimoError ?: "sin motivo aun, pulsa Probar servicio de comandos"}"
+            if (listo()) "[$sello] canal=${canal?.first ?: "ninguno"} · ${ultimoError ?: "pulsa Probar servicio de comandos"}"
             else "Shizuku no esta activo o falta el permiso"
         )
         return try {
