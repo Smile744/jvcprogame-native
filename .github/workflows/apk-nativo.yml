@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     name: Compilar APK (debug)
@@ -56,3 +59,13 @@ jobs:
           name: jvcprogame-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Publicar APK en la Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apk=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          gh release view apk-latest >/dev/null 2>&1 || gh release create apk-latest \
+            --title "JVC-PRO-GAME (APK debug)" \
+            --notes "APK generada por GitHub Actions desde el ultimo build verde de main. Es firma de debug: habilita instalar apps desconocidas en el movil."
+          gh release upload apk-latest "$apk" --clobber
