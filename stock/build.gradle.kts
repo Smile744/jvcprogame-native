@@ -11,8 +11,8 @@ android {
         applicationId = "org.jvc.stock"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.0-s3"
+        versionCode = 4
+        versionName = "1.0-s4"
     }
 
     buildTypes {
