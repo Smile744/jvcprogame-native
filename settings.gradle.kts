@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "JVC-PRO-GAME"
 include(":app")
+include(":stock")
