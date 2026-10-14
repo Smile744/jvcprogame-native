@@ -11,8 +11,8 @@ android {
         applicationId = "org.jvc.stock"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0-s1"
+        versionCode = 2
+        versionName = "1.0-s2"
     }
 
     buildTypes {
@@ -33,6 +33,7 @@ android {
 }
 
 dependencies {
-    implementation("org.postgresql:postgresql:42.2.27")
+    // 42.2.9 es la última que no llama a java.lang.management (no existe en Android): desde 42.2.10 revienta al conectar
+    implementation("org.postgresql:postgresql:42.2.9")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
