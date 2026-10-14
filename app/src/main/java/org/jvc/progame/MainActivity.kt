@@ -544,7 +544,7 @@ class MainActivity : AppCompatActivity() {
                 if (vistos.isEmpty()) secJuego.decir("muestra ${i + 1}/12: no pude leer la bateria")
                 else {
                     secJuego.decir(
-                        "muestra ${i + 1}/12 -> ahora ${grados(vistas.last())} · " +
+                        "muestra ${i + 1}/12 -> ahora ${grados(vistos.last())} · " +
                             "min ${grados(vistos.minOrNull()!!)} · max ${grados(vistos.maxOrNull()!!)} · " +
                             "en pantalla ${f ?: "nada"}"
                     )
