@@ -40,7 +40,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var modoInput: EditText
     private lateinit var secGatillos: Seccion
     private lateinit var secMira: Seccion
-    private lateinit var secStock: Seccion
     private lateinit var tamanoMiraInput: EditText
     private lateinit var grosorMiraInput: EditText
     private lateinit var desfaseMiraInput: EditText
@@ -282,12 +281,6 @@ class MainActivity : AppCompatActivity() {
         secMira.boton("Aplicar tamano y grosor") { aplicarMedidasMira() }
         secMira.boton("QUITAR mira y contador") { aplicarMira(activa = false) }
         anadir(secMira)
-
-        secStock = Seccion("STOCK DEL DATACENTER (solo lectura)")
-        secStock.boton("Abrir JVC STOCK") {
-            startActivity(Intent(this, StockActivity::class.java))
-        }
-        anadir(secStock)
 
         secLanzador = Seccion("LANZADOR: TODO DE UN GOLPE")
         secLanzador.boton("1. Elegir el juego del lanzador") { elegirJuego(secLanzador, accion = "perfil") }
