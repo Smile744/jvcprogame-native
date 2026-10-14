@@ -174,7 +174,7 @@ class StockActivity : Activity() {
                         0xFF00FFB7.toInt())
                     if (textoDe(cajaTabla).isBlank()) cajaTabla.setText(sugerida ?: "")
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 try { nueva?.close() } catch (ignora: Exception) { }
                 ui.post { ocupado = false; decir("no entro: ${mensaje(e)}", 0xFFFF6B6B.toInt()) }
             }
@@ -230,7 +230,7 @@ class StockActivity : Activity() {
                         pintar(cab, filas, tabla, q)
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ui.post { ocupado = false; decir("rechazada: ${mensaje(e)}", 0xFFFF6B6B.toInt()) }
             }
         }
@@ -304,7 +304,7 @@ class StockActivity : Activity() {
     private fun pref(prefs: SharedPreferences, clave: String, porDefecto: String): String =
         prefs.getString(clave, porDefecto) ?: porDefecto
 
-    private fun mensaje(e: Exception) = (e.message ?: e.javaClass.simpleName).take(220)
+    private fun mensaje(e: Throwable) = (e.message ?: e.javaClass.simpleName).take(220)
 
     private fun guardarPrefs() {
         getSharedPreferences("stock", MODE_PRIVATE).edit()
