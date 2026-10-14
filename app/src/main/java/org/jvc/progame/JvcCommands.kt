@@ -157,6 +157,54 @@ object JvcCommands {
     fun estadoTermico(): ShellResult =
         ShizukuShell.ejecutar("dumpsys thermalservice | grep -E 'mStatus|Temperature|type'")
 
+    // ---------- modo juego ----------
+
+    private val TEMP_RE = Regex("temperature:\\s*(-?\\d+)")
+
+    /** Decimas de grado Celsius: 313 son 31,3 C. Es lo unico que frena el telefono por las buenas. */
+    fun temperatura(): Int? {
+        val r = ShizukuShell.ejecutar("dumpsys battery | grep -m1 temperature")
+        if (!r.ok) return null
+        return TEMP_RE.find(r.out)?.groupValues?.get(1)?.toIntOrNull()
+    }
+
+    /**
+     * Todo el set de juego en un toque. Apagar el modem es lo que mas baja los grados cuando el
+     * LTE llega flojo (rsrp peor que -110): con WiFi activo la voz y los SMS siguen entrando.
+     */
+    fun modoJuego(paquete: String?, cierra: List<String>): ShellResult {
+        if (paquete != null && !seguro(paquete)) return mala(paquete)
+        val pasos = ArrayList<String>()
+        pasos.add("echo DATOS:; svc data disable")
+        pasos.add("echo AHORRO:; settings put global low_power 0 ; cmd power set-mode 0")
+        pasos.add(
+            "echo ANIMACIONES:; settings put global window_animation_scale 0 ; " +
+                "settings put global transition_animation_scale 0 ; " +
+                "settings put global animator_duration_scale 0"
+        )
+        pasos.add(
+            "echo TOQUE:; settings put secure tap_and_hold_delay 100 ; " +
+                "settings put system haptic_feedback_enabled 0"
+        )
+        if (paquete != null) pasos.add("echo REPOSO:; dumpsys deviceidle whitelist +$paquete")
+        val objetivo = cierra.filter { seguro(it) && it != paquete }.take(30)
+        objetivo.forEach { pasos.add("am force-stop $it") }
+        pasos.add("echo CERRADAS: ${objetivo.size} apps de fondo")
+        pasos.add("echo TEMPERATURA:; dumpsys battery | grep -m1 temperature")
+        return ShizukuShell.ejecutar(pasos.joinToString("; "))
+    }
+
+    /** El reves completo, para dejar el telefono como venia de fabrica. */
+    fun modoNormal(): ShellResult = ShizukuShell.ejecutar(
+        "echo DATOS:; svc data enable ; " +
+            "echo TOQUE:; settings put secure tap_and_hold_delay 400 ; " +
+            "settings put system haptic_feedback_enabled 1 ; " +
+            "echo ANIMACIONES:; settings put global window_animation_scale 1 ; " +
+            "settings put global transition_animation_scale 1 ; " +
+            "settings put global animator_duration_scale 1 ; " +
+            "echo TEMPERATURA:; dumpsys battery | grep -m1 temperature"
+    )
+
     /**
      * Frenos reales de CPU/GPU. Escalamos los nucleos por shell NO se puede (eso es root),
      * pero si se puede leer y ensenar donde esta el limite puesto por el fabricante.

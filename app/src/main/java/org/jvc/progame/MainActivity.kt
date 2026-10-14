@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var secOverlay: Seccion
     private lateinit var secCongelador: Seccion
     private lateinit var secRendimiento: Seccion
+    private lateinit var secJuego: Seccion
     private lateinit var secLanzador: Seccion
     private lateinit var anchoInput: EditText
     private lateinit var altoInput: EditText
@@ -48,6 +49,10 @@ class MainActivity : AppCompatActivity() {
     private var ultimoHz: Int? = null
     private var nombresApps: List<String> = emptyList()
     private var paquetesApps: List<String> = emptyList()
+
+    /** La grabadora de temperatura corre en un hilo y se corta con el boton de PARAR. */
+    @Volatile
+    private var grabandoTemperatura = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -241,6 +246,20 @@ class MainActivity : AppCompatActivity() {
             secRendimiento.lectura("cpu") { JvcCommands.frenosCpu() }
         }
         anadir(secRendimiento)
+
+        secJuego = Seccion("MODO JUEGO: RAPIDO Y SIN CALOR, UN TOQUE")
+        secJuego.boton("ACTIVAR TODO (apaga el modem, animaciones, toque, cierra fondo)") { activarModoJuego() }
+        secJuego.boton("Dejar el telefono como venia") {
+            secJuego.ejecutar("modo normal") { JvcCommands.modoNormal() }
+        }
+        secJuego.boton("¿Cuantos grados tiene ahora?") { leerTemperatura() }
+        secJuego.boton("Grabar temperatura 3 minutos (jugá mientras)") { grabarTemperatura() }
+        secJuego.boton("PARAR la grabacion") {
+            grabandoTemperatura = false
+            secJuego.decir("grabacion cortada")
+        }
+        secJuego.boton("¿Como esta cada cosa? (lectura)") { revisarModoJuego() }
+        anadir(secJuego)
 
         secGatillos = Seccion("GATILLOS: GT TRIGGER DE MI TELEFONO")
         secGatillos.boton("Mi telefono y donde estan sus gatillos") {
@@ -476,6 +495,87 @@ class MainActivity : AppCompatActivity() {
         val pkg = paqueteElegido
         if (pkg == null) secRendimiento.decir("primero elige el juego en el recuadro LANZADOR")
         else secRendimiento.ejecutar("$pkg fuera de Doze") { JvcCommands.fueraDeReposo(pkg) }
+    }
+
+    // ---------- modo juego ----------
+
+    /** Apps que conviene no cerrar: la nuestra, Shizuku, el navegador y el propio juego. */
+    private val intocables = setOf(
+        "org.jvc.progame", "moe.shizuku.privileged.api", "com.android.chrome",
+    )
+
+    private fun activarModoJuego() {
+        secJuego.decir("aplicando modo juego...")
+        lanzar {
+            val juego = paqueteElegido ?: JvcCommands.appEnPrimeroPlano()
+            val fondo = JvcCommands.appsInstaladas(this)
+                .map { it.second }
+                .filterNot { it in intocables || it == juego }
+            val r = JvcCommands.modoJuego(juego, fondo)
+            val texto = r.out.trim().ifBlank { r.resumen() }
+            secJuego.decir(
+                "modo juego " + (juego ?: "(sin juego elegido)") + " ->\n" +
+                    texto + "\nSi te quedaste sin Internet al sacar el modem, usa 'Dejar el telefono como venia'."
+            )
+        }
+    }
+
+    private fun grados(decimas: Int): String = String.format("%.1f", decimas / 10.0) + " C"
+
+    private fun leerTemperatura() = lanzar {
+        val t = JvcCommands.temperatura()
+        val f = JvcCommands.appEnPrimeroPlano()
+        secJuego.decir(
+            (if (t == null) "no pude leer la bateria" else "el telefono esta a ${grados(t)}") +
+                "  ·  en pantalla: ${f ?: "nada"}"
+        )
+    }
+
+    /** Doce muestras cada 15 s: si pasa de ~43 C la ROM baja los nucleos y ahi el limite es el calor. */
+    private fun grabarTemperatura() {
+        if (grabandoTemperatura) { secJuego.decir("la grabacion ya esta corriendo"); return }
+        grabandoTemperatura = true
+        lanzar {
+            val vistos = ArrayList<Int>()
+            repeat(12) { i ->
+                if (!grabandoTemperatura) return@lanzar
+                JvcCommands.temperatura()?.let { vistos.add(it) }
+                val f = JvcCommands.appEnPrimeroPlano()
+                if (vistos.isEmpty()) secJuego.decir("muestra ${i + 1}/12: no pude leer la bateria")
+                else {
+                    secJuego.decir(
+                        "muestra ${i + 1}/12 -> ahora ${grados(vistas.last())} · " +
+                            "min ${grados(vistos.minOrNull()!!)} · max ${grados(vistos.maxOrNull()!!)} · " +
+                            "en pantalla ${f ?: "nada"}"
+                    )
+                }
+                try {
+                    Thread.sleep(15000)
+                } catch (e: InterruptedException) {
+                    return@lanzar
+                }
+            }
+            if (vistos.isNotEmpty()) {
+                secJuego.decir(
+                    "3 minutos: ${grados(vistos.first())} -> ${grados(vistos.last())}, " +
+                        "maximo ${grados(vistos.maxOrNull()!!)} en ${vistos.size} muestras. " +
+                        "Sobre 43 C la ROM frena los nucleos: ahi la caida de FPS es proteccion termica."
+                )
+            }
+            grabandoTemperatura = false
+        }
+    }
+
+    private fun revisarModoJuego() = lanzar {
+        val r = ShizukuShell.ejecutar(
+            "echo MODEM:; settings get global mobile_data; " +
+                "echo ANIMACION:; settings get global window_animation_scale; " +
+                "echo TOQUE:; settings get secure tap_and_hold_delay; settings get system haptic_feedback_enabled; " +
+                "echo AHORRO:; settings get global low_power; " +
+                "echo Hz:; dumpsys display | grep -m1 mCurrentRefreshRate; " +
+                "echo TEMPERATURA:; dumpsys battery | grep -m1 temperature"
+        )
+        secJuego.decir(r.out.trim().ifBlank { r.resumen() })
     }
 
     private fun guardarPerfil() {
