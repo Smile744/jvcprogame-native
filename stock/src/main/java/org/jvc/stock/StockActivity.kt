@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -157,27 +158,34 @@ class StockActivity : Activity() {
         val u = textoDe(cajaUsuario)
         val c = cajaClave.text.toString()
         hilo {
-            var nueva: Connection? = null
-            try {
-                Class.forName("org.postgresql.Driver")
-                nueva = DriverManager.getConnection(
-                    "jdbc:postgresql://$h:$p/$b?connectTimeout=12&socketTimeout=30&sslmode=prefer", u, c)
-                nueva.isReadOnly = true
-                val tablas = listarTablas(nueva, 200)
-                val vieja = conexion
-                conexion = nueva
-                vieja?.close()
-                val sugerida = mejorDe(tablas)
-                ui.post {
-                    ocupado = false
-                    decir("${tablas.size} tablas. " + (sugerida ?: "ninguna parece de productos: escribi una"),
-                        0xFF00FFB7.toInt())
-                    if (textoDe(cajaTabla).isBlank()) cajaTabla.setText(sugerida ?: "")
+            var ultimo: Throwable? = null
+            for (modo in listOf("disable", "prefer")) {
+                var nueva: Connection? = null
+                try {
+                    Class.forName("org.postgresql.Driver")
+                    ui.post { decir("intentando ssl=$modo...", 0xFFFFD479.toInt()) }
+                    nueva = DriverManager.getConnection(
+                        "jdbc:postgresql://$h:$p/$b?connectTimeout=12&socketTimeout=30&sslmode=$modo", u, c)
+                    nueva.isReadOnly = true
+                    val tablas = listarTablas(nueva, 200)
+                    val vieja = conexion
+                    conexion = nueva
+                    vieja?.close()
+                    val sugerida = mejorDe(tablas)
+                    ui.post {
+                        ocupado = false
+                        decir("${tablas.size} tablas (ssl=$modo). " +
+                            (sugerida ?: "ninguna parece de productos: escribi una"), 0xFF00FFB7.toInt())
+                        if (textoDe(cajaTabla).isBlank()) cajaTabla.setText(sugerida ?: "")
+                    }
+                    return@hilo
+                } catch (e: Throwable) {
+                    try { nueva?.close() } catch (ignora: Exception) { }
+                    ultimo = e
                 }
-            } catch (e: Throwable) {
-                try { nueva?.close() } catch (ignora: Exception) { }
-                ui.post { ocupado = false; decir("no entro: ${mensaje(e)}", 0xFFFF6B6B.toInt()) }
             }
+            val fin = ultimo
+            ui.post { ocupado = false; decir("no entro: ${if (fin == null) "?" else mensaje(fin)}", 0xFFFF6B6B.toInt()) }
         }
     }
 
@@ -295,6 +303,7 @@ class StockActivity : Activity() {
     }
 
     private fun decir(texto: String, color: Int) {
+        Log.i("JVCSTOCK", texto)
         estado.text = texto
         estado.setTextColor(color)
     }
@@ -304,7 +313,12 @@ class StockActivity : Activity() {
     private fun pref(prefs: SharedPreferences, clave: String, porDefecto: String): String =
         prefs.getString(clave, porDefecto) ?: porDefecto
 
-    private fun mensaje(e: Throwable) = (e.message ?: e.javaClass.simpleName).take(220)
+    private fun mensaje(e: Throwable): String {
+        val causa = e.cause?.message
+        val texto = listOfNotNull(e.javaClass.simpleName, e.message, if (causa != null) "causa: $causa" else null)
+            .joinToString(" / ")
+        return texto.take(300)
+    }
 
     private fun guardarPrefs() {
         getSharedPreferences("stock", MODE_PRIVATE).edit()
