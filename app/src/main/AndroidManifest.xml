@@ -34,12 +34,6 @@
             android:exported="false"
             android:label="Mapa de gatillos" />
 
-        <activity
-            android:name=".StockActivity"
-            android:exported="false"
-            android:label="Stock"
-            android:windowSoftInputMode="adjustResize" />
-
         <service
             android:name=".FpsOverlayService"
             android:exported="false"
