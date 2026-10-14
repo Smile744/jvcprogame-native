@@ -1,6 +1,7 @@
 package org.jvc.progame
 
 import android.app.Activity
+import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -38,11 +39,11 @@ class StockActivity : Activity() {
         window.setStatusBarColor(Color.BLACK)
         val prefs = getSharedPreferences("stock", MODE_PRIVATE)
 
-        cajaHost = campo(prefs.getString("host", "190.104.134.156"), InputType.TYPE_CLASS_TEXT)
-        cajaPuerto = campo(prefs.getString("puerto", "5432"), InputType.TYPE_CLASS_NUMBER)
-        cajaBase = campo(prefs.getString("base", "motocave_sa"), InputType.TYPE_CLASS_TEXT)
-        cajaUsuario = campo(prefs.getString("usuario", ""), InputType.TYPE_CLASS_TEXT)
-        cajaClave = campo(prefs.getString("clave", ""),
+        cajaHost = campo(pref(prefs, "host", "190.104.134.156"), InputType.TYPE_CLASS_TEXT)
+        cajaPuerto = campo(pref(prefs, "puerto", "5432"), InputType.TYPE_CLASS_NUMBER)
+        cajaBase = campo(pref(prefs, "base", "motocave_sa"), InputType.TYPE_CLASS_TEXT)
+        cajaUsuario = campo(pref(prefs, "usuario", ""), InputType.TYPE_CLASS_TEXT)
+        cajaClave = campo(pref(prefs, "clave", ""),
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         cajaBusqueda = campo("", InputType.TYPE_CLASS_TEXT)
         cajaBusqueda.hint = "codigo o nombre"
@@ -214,7 +215,7 @@ class StockActivity : Activity() {
                     val n = meta.columnCount
                     val cab = (1..n).map { meta.getColumnLabel(it) }
                     val filas = ArrayList<ArrayList<String>>()
-                    while (rs.next()) filas.add((1..n).map { rs.getString(it) ?: "" })
+                    while (rs.next()) filas.add(ArrayList((1..n).map { rs.getString(it) ?: "" }))
                     ui.post {
                         ocupado = false
                         cajaTabla.setText(tabla)
@@ -290,6 +291,9 @@ class StockActivity : Activity() {
     }
 
     private fun textoDe(campo: EditText) = campo.text.toString().trim()
+
+    private fun pref(prefs: SharedPreferences, clave: String, porDefecto: String): String =
+        prefs.getString(clave, porDefecto) ?: porDefecto
 
     private fun mensaje(e: Exception) = (e.message ?: e.javaClass.simpleName).take(220)
 
