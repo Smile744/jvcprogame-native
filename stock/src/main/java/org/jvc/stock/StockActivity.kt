@@ -16,15 +16,23 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.sql.Connection
 import java.sql.DriverManager
+import org.json.JSONArray
+import org.json.JSONObject
 
 class StockActivity : Activity() {
 
     private val ui = Handler(Looper.getMainLooper())
     private var conexion: Connection? = null
+    private var enPuente = false
     private var ocupado = false
 
+    private lateinit var cajaPuente: EditText
+    private lateinit var cajaToken: EditText
     private lateinit var cajaHost: EditText
     private lateinit var cajaPuerto: EditText
     private lateinit var cajaBase: EditText
@@ -40,6 +48,9 @@ class StockActivity : Activity() {
         window.setStatusBarColor(Color.BLACK)
         val prefs = getSharedPreferences("stock", MODE_PRIVATE)
 
+        cajaPuente = campo(pref(prefs, "puente", ""), InputType.TYPE_CLASS_TEXT)
+        cajaPuente.hint = "http://192.168.0.120:8077  (vacio = ir directo a la base)"
+        cajaToken = campo(pref(prefs, "token", ""), InputType.TYPE_CLASS_TEXT)
         cajaHost = campo(pref(prefs, "host", "190.104.134.156"), InputType.TYPE_CLASS_TEXT)
         cajaPuerto = campo(pref(prefs, "puerto", "5432"), InputType.TYPE_CLASS_NUMBER)
         cajaBase = campo(pref(prefs, "base", "motocave_sa"), InputType.TYPE_CLASS_TEXT)
@@ -64,10 +75,15 @@ class StockActivity : Activity() {
             setPadding(24, 24, 24, 24)
             addView(titulo())
             addView(linea(sello(), 0xFF7A7A86.toInt()))
+            addView(etiqueta("Puente en tu PC (recomendado: tu PC tiene la llave, el celular no)"))
+            addView(cajaPuente, anchoCompleto(10))
+            addView(etiqueta("Token del puente"))
+            addView(cajaToken, anchoCompleto(10))
+            addView(linea("---- abajo: solo si vas directo a la base ----", 0xFF4A4A55.toInt()))
             addView(etiqueta("Servidor"))
             addView(cajaHost, anchoCompleto(10))
             addView(filaPuertoBase())
-            addView(etiqueta("Usuario de la base"))
+            addView(etiqueta("Usuario (el de operadora si usas puente)"))
             addView(cajaUsuario, anchoCompleto(10))
             addView(etiqueta("Contrasena"))
             addView(cajaClave, anchoCompleto(10))
@@ -150,13 +166,20 @@ class StockActivity : Activity() {
     private fun entrar() {
         if (ocupado) return
         guardarPrefs()
-        decir("conectando...", 0xFFFFD479.toInt())
         ocupado = true
+        val puente = textoDe(cajaPuente)
+        if (puente.isNotBlank()) {
+            decir("hablando con el puente...", 0xFFFFD479.toInt())
+            hilo { entrarPorPuente(puente) }
+            return
+        }
+        decir("conectando...", 0xFFFFD479.toInt())
         val h = textoDe(cajaHost)
         val p = textoDe(cajaPuerto)
         val b = textoDe(cajaBase)
         val u = textoDe(cajaUsuario)
         val c = cajaClave.text.toString()
+        enPuente = false
         hilo {
             var ultimo: Throwable? = null
             for (modo in listOf("disable", "prefer")) {
@@ -189,23 +212,72 @@ class StockActivity : Activity() {
         }
     }
 
+    private fun entrarPorPuente(direccion: String) {
+        val url = direccion.trimEnd('/')
+        val t = textoDe(cajaToken)
+        val cuerpo = "token=${enc(t)}&usuario=${enc(textoDe(cajaUsuario))}&clave=${enc(cajaClave.text.toString())}"
+        try {
+            JSONObject(http(url + "/salud", null))
+        } catch (e: Throwable) {
+            fracaso("el puente no responde: ${mensaje(e)}")
+            return
+        }
+        ui.post { decir("puente vivo, validando tu usuario...", 0xFFFFD479.toInt()) }
+        val login = try {
+            JSONObject(http(url + "/login", cuerpo))
+        } catch (e: Throwable) {
+            fracaso("el puente rechazo el login: ${mensaje(e)}")
+            return
+        }
+        if (!login.optBoolean("ok")) {
+            fracaso("el puente no deja pasar: " + login.optString("motivo", "?"))
+            return
+        }
+        enPuente = true
+        val nombres = ArrayList<String>()
+        var aviso = login.optString("aviso", "")
+        try {
+            val filas = filasDe(JSONObject(http("$url/tablas?token=${enc(t)}", null)))
+            for (i in 0 until filas.length()) {
+                filas.optJSONObject(i)?.optString("tabla")?.let { if (it.isNotBlank()) nombres.add(it) }
+            }
+        } catch (e: Throwable) {
+            aviso = aviso + " / tablas: " + mensaje(e)
+        }
+        val sugerida = mejorDe(nombres)
+        ui.post {
+            ocupado = false
+            val extra = if (aviso.isBlank()) "" else "  [$aviso]"
+            decir("dentro por puente. ${nombres.size} tablas. " +
+                (sugerida ?: "escribi la tabla") + extra, 0xFF00FFB7.toInt())
+            if (textoDe(cajaTabla).isBlank()) cajaTabla.setText(sugerida ?: "")
+        }
+    }
+
+    private fun fracaso(texto: String) {
+        ui.post { ocupado = false; decir(texto, 0xFFFF6B6B.toInt()) }
+    }
+
     private fun desconectar() {
         val vieja = conexion
         conexion = null
+        enPuente = false
         resultados.removeAllViews()
-        decir("sali de la base", 0xFF7A7A86.toInt())
+        decir("sali", 0xFF7A7A86.toInt())
         hilo { try { vieja?.close() } catch (ignora: Exception) { } }
     }
 
     private fun buscar() {
-        val con = conexion
-        if (con == null) { decir("primero ENTRAR", 0xFFFF6B6B.toInt()); return }
         if (ocupado) return
+        if (conexion == null && !enPuente) { decir("primero ENTRAR", 0xFFFF6B6B.toInt()); return }
         val q = textoDe(cajaBusqueda)
         if (q.length < 2) { decir("escribi algo que buscar", 0xFFFF6B6B.toInt()); return }
+        if (enPuente) { buscarPorPuente(q); return }
         decir("buscando...", 0xFFFFD479.toInt())
         ocupado = true
+        val con = conexion
         val pedida = textoDe(cajaTabla)
+        if (con == null) { ocupado = false; return }
         hilo {
             try {
                 val tabla = if (pedida.isNotBlank()) pedida
@@ -241,6 +313,79 @@ class StockActivity : Activity() {
             } catch (e: Throwable) {
                 ui.post { ocupado = false; decir("rechazada: ${mensaje(e)}", 0xFFFF6B6B.toInt()) }
             }
+        }
+    }
+
+    private fun buscarPorPuente(q: String) {
+        decir("buscando por puente...", 0xFFFFD479.toInt())
+        ocupado = true
+        val url = textoDe(cajaPuente).trimEnd('/')
+        val tabla = textoDe(cajaTabla)
+        var direccion = "$url/buscar?token=${enc(textoDe(cajaToken))}&q=${enc(q)}"
+        if (tabla.isNotBlank()) direccion = direccion + "&tabla=${enc(tabla)}"
+        hilo {
+            try {
+                val o = JSONObject(http(direccion, null))
+                if (!o.optBoolean("ok")) {
+                    fracaso("el puente dijo: " + o.optString("motivo", "?"))
+                    return@hilo
+                }
+                val filas = filasDe(o)
+                val cab = ArrayList<String>()
+                val arreglo = o.optJSONArray("orden")
+                if (arreglo != null) for (i in 0 until arreglo.length()) cab.add(arreglo.optString(i))
+                if (cab.isEmpty()) filas.optJSONObject(0)?.let { primera -> for (k in primera.keys()) cab.add(k) }
+                val datos = ArrayList<ArrayList<String>>()
+                for (i in 0 until filas.length()) {
+                    val fila = filas.optJSONObject(i) ?: continue
+                    datos.add(ArrayList(cab.map { fila.optString(it, "") }))
+                }
+                ui.post {
+                    ocupado = false
+                    decir("${filas.length()} fila(s) para \"$q\"", 0xFF00FFB7.toInt())
+                    pintar(cab, datos, tabla, q)
+                }
+            } catch (e: Throwable) {
+                fracaso("puente: ${mensaje(e)}")
+            }
+        }
+    }
+
+    private fun http(direccion: String, cuerpo: String?): String {
+        val c = URL(direccion).openConnection() as HttpURLConnection
+        c.connectTimeout = 8000
+        c.readTimeout = 25000
+        c.setRequestProperty("Accept", "application/json")
+        try {
+            if (cuerpo != null) {
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                c.outputStream.use { it.write(cuerpo.toByteArray(Charsets.UTF_8)) }
+            } else {
+                c.requestMethod = "GET"
+            }
+            val codigo = c.responseCode
+            val texto = (if (codigo in 200..299) c.inputStream else c.errorStream)
+                ?.readBytes()?.toString(Charsets.UTF_8) ?: ""
+            if (codigo !in 200..299) {
+                val motivo = try { JSONObject(texto).optString("motivo", "http $codigo") }
+                             catch (ignora: Exception) { "http $codigo" }
+                throw RuntimeException(motivo)
+            }
+            return texto
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    private fun enc(v: String) = URLEncoder.encode(v, "UTF-8")
+
+    private fun filasDe(o: JSONObject): JSONArray {
+        return when (val f = o.opt("filas")) {
+            is JSONArray -> f
+            is JSONObject -> JSONArray().put(f)
+            else -> JSONArray()
         }
     }
 
@@ -322,6 +467,8 @@ class StockActivity : Activity() {
 
     private fun guardarPrefs() {
         getSharedPreferences("stock", MODE_PRIVATE).edit()
+            .putString("puente", textoDe(cajaPuente))
+            .putString("token", textoDe(cajaToken))
             .putString("host", textoDe(cajaHost))
             .putString("puerto", textoDe(cajaPuerto))
             .putString("base", textoDe(cajaBase))
