@@ -57,7 +57,7 @@ jobs:
         run: |
           mkdir -p _salida
           cp "$(ls app/build/outputs/apk/debug/*.apk | head -1)" _salida/app-debug.apk
-          cp "$(ls stock/build/outputs/apk/debug/*.apk | head -1)" _salida/jvc-stock-debug.apk
+          cp "$(ls stock/build/outputs/apk/debug/*.apk | head -1)" _salida/JVC-STOCK.apk
           ls -l _salida
 
       - name: Subir APK
@@ -74,4 +74,7 @@ jobs:
           gh release view apk-latest >/dev/null 2>&1 || gh release create apk-latest \
             --title "JVC-PRO-GAME (APK debug)" \
             --notes "APK generada por GitHub Actions desde el ultimo build verde de main. Es firma de debug: habilita instalar apps desconocidas en el movil."
-          gh release upload apk-latest _salida/app-debug.apk _salida/jvc-stock-debug.apk --clobber
+          gh release upload apk-latest _salida/app-debug.apk _salida/JVC-STOCK.apk --clobber
+          for a in $(gh release view apk-latest --json assets -q '.assets[].name'); do
+            [ -f "_salida/$a" ] || gh release delete-asset apk-latest "$a" --yes
+          done
