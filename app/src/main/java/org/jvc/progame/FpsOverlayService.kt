@@ -28,7 +28,6 @@ class FpsOverlayService : Service() {
 
     private var wm: WindowManager? = null
     private var texto: TextView? = null
-    private var mira: MiraView? = null
     private var paquete: String? = null
     private val main = Handler(Looper.getMainLooper())
     private val pool = Executors.newSingleThreadExecutor()
@@ -63,37 +62,7 @@ class FpsOverlayService : Service() {
         }
         wm = w
         texto = t
-        val cfg = MiraPrefs.leer(this)
-        if (cfg.activa) {
-            val m = MiraView(this)
-            m.aplicar(cfg)
-            try {
-                w.addView(m, parametrosMira())
-                mira = m
-            } catch (e: Exception) {
-                pintaGlobal("MIRA rechazada: ${e.javaClass.simpleName}")
-            }
-        }
         main.post { bucle() }
-    }
-
-    /** Ocupa la pantalla entera pero sin foco y sin tacto: el dedo llega al juego igual. */
-    private fun parametrosMira(): WindowManager.LayoutParams {
-        val tipo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        else
-            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-
-        return WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            tipo,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        )
     }
 
     /** Si el panel no existe aun, el motivo va al registro de la activity. */
@@ -125,7 +94,6 @@ class FpsOverlayService : Service() {
 
     private fun bucle() {
         if (!corriendo || texto == null) return
-        mira?.aplicar(MiraPrefs.leer(this))
         val elegido = paquete
         if (!ShizukuShell.listo()) {
             pinta(null, elegido, "Shizuku caido")
@@ -214,17 +182,6 @@ class FpsOverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra("pkg")?.let { paquete = it }
-        // Si el overlay ya estaba puesto y ella acaba de activar la mira, se anade ahora.
-        val w = wm
-        if (w != null && mira == null && MiraPrefs.leer(this).activa) {
-            val m = MiraView(this)
-            try {
-                w.addView(m, parametrosMira())
-                mira = m
-            } catch (e: Exception) {
-                pintaGlobal("MIRA rechazada: ${e.javaClass.simpleName}")
-            }
-        }
         startForeground(ID_NOTIF, notificacion(paquete))
         return START_STICKY
     }
@@ -232,7 +189,6 @@ class FpsOverlayService : Service() {
     override fun onDestroy() {
         corriendo = false
         pool.shutdownNow()
-        try { wm?.removeView(mira) } catch (e: Exception) { }
         try { wm?.removeView(texto) } catch (e: Exception) { }
         super.onDestroy()
     }

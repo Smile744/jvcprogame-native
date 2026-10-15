@@ -36,14 +36,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var anchoInput: EditText
     private lateinit var altoInput: EditText
     private lateinit var dpiInput: EditText
-    private lateinit var sensInput: EditText
-    private lateinit var cadenciaInput: EditText
-    private lateinit var modoInput: EditText
-    private lateinit var secGatillos: Seccion
-    private lateinit var secMira: Seccion
-    private lateinit var tamanoMiraInput: EditText
-    private lateinit var grosorMiraInput: EditText
-    private lateinit var desfaseMiraInput: EditText
     private var paqueteElegido: String? = null
     private var ultimaDns: String? = null
     private var ultimoHz: Int? = null
@@ -261,46 +253,6 @@ class MainActivity : AppCompatActivity() {
         secJuego.boton("¿Como esta cada cosa? (lectura)") { revisarModoJuego() }
         anadir(secJuego)
 
-        secGatillos = Seccion("GATILLOS: GT TRIGGER DE MI TELEFONO")
-        secGatillos.boton("Mi telefono y donde estan sus gatillos") {
-            secGatillos.lectura("telefono ${JvcCommands.miTelefono()}") { JvcCommands.gatillosInfo() }
-        }
-        secGatillos.boton("Abrir el gestor de juegos (ahi se mapean los gatillos)") {
-            abrirGestorJuegos()
-        }
-        secGatillos.boton("MAPA: colocar los puntos arrastrando el dedo") {
-            startActivity(Intent(this, MapaGatillosActivity::class.java))
-        }
-        secGatillos.boton("?Donde guarda X-Arena mi mapeo? (solo leer)") {
-            secGatillos.lectura("x-arena") { JvcCommands.arenaMapa() }
-        }
-        sensInput = secGatillos.campo("sensibilidad 1-10, ej. 7")
-        cadenciaInput = secGatillos.campo("toques por segundo, ej. 12")
-        modoInput = secGatillos.campo("modo: simple / doble / turbo")
-        secGatillos.boton("Guardar estos valores para MI modelo") { guardarGatillos() }
-        secGatillos.boton("Recordarme los valores guardados") { verGatillos() }
-        anadir(secGatillos)
-
-        secMira = Seccion("MIRA SUPERPUESTA (crosshair)")
-        listOf(
-            "cruz" to 1, "cruz con hueco" to 2, "circulo" to 3, "punto" to 4, "circulo con cruz" to 5,
-        ).forEach { (nombre, estilo) ->
-            secMira.boton("Estilo: $nombre") { aplicarMira(estilo = estilo) }
-        }
-        listOf(
-            "verde" to MiraPrefs.COLOR_VERDE, "rojo" to MiraPrefs.COLOR_ROJO,
-            "blanco" to MiraPrefs.COLOR_BLANCO, "amarillo" to MiraPrefs.COLOR_AMARILLO,
-            "cian" to MiraPrefs.COLOR_CIAN,
-        ).forEach { (nombre, color) ->
-            secMira.boton("Color: $nombre") { aplicarMira(color = color) }
-        }
-        tamanoMiraInput = secMira.campo("tamano en px, ej. 60")
-        grosorMiraInput = secMira.campo("grosor en px, ej. 4")
-        desfaseMiraInput = secMira.campo("desfase vertical px, + baja la mira")
-        secMira.boton("Aplicar tamano y grosor") { aplicarMedidasMira() }
-        secMira.boton("QUITAR mira y contador") { aplicarMira(activa = false) }
-        anadir(secMira)
-
         secLanzador = Seccion("LANZADOR: TODO DE UN GOLPE")
         secLanzador.boton("1. Elegir el juego del lanzador") { elegirJuego(secLanzador, accion = "perfil") }
         secLanzador.boton("2. Guardar perfil con lo de las casillas") { guardarPerfil() }
@@ -370,126 +322,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- mira ----------
-
-    /**
-     * La mira vive en Preferencias y el servicio la lee cada segundo: cambiar estilo o color
-     * aqui se nota en el juego sin tener que quitar y volver a poner el overlay.
-     */
-    private fun aplicarMira(
-        activa: Boolean = true,
-        estilo: Int? = null,
-        color: Int? = null,
-        tamano: Int? = null,
-        grosor: Int? = null,
-        desfase: Int? = null,
-    ) {
-        val viejo = MiraPrefs.leer(this)
-        val nuevo = viejo.copy(
-            activa = activa,
-            estilo = estilo ?: viejo.estilo,
-            color = color ?: viejo.color,
-            tamano = tamano ?: viejo.tamano,
-            grosor = grosor ?: viejo.grosor,
-            desfaseY = desfase ?: viejo.desfaseY,
-        )
-        MiraPrefs.escribir(this, nuevo)
-        if (!activa) {
-            stopService(Intent(this, FpsOverlayService::class.java))
-            secMira.decir("mira y overlay quitados")
-            return
-        }
-        secMira.decir(
-            "mira: estilo ${nuevo.estilo} · ${nuevo.tamano}px · grosor ${nuevo.grosor} · " +
-                "desfase ${nuevo.desfaseY} · color ${nombreColor(nuevo.color)}\n" +
-                "solo dibuja: no intercepta ningún toque, el dedo llega al juego igual."
-        )
-        pedirOverlayYMostrar(secMira, paqueteElegido)
-    }
-
-    private fun nombreColor(c: Int): String = when (c) {
-        MiraPrefs.COLOR_VERDE -> "verde"
-        MiraPrefs.COLOR_ROJO -> "rojo"
-        MiraPrefs.COLOR_BLANCO -> "blanco"
-        MiraPrefs.COLOR_AMARILLO -> "amarillo"
-        MiraPrefs.COLOR_CIAN -> "cian"
-        else -> Integer.toHexString(c)
-    }
-
-    private fun aplicarMedidasMira() {
-        val t = tamanoMiraInput.text.toString().trim().toIntOrNull()
-        val g = grosorMiraInput.text.toString().trim().toIntOrNull()
-        val d = desfaseMiraInput.text.toString().trim().toIntOrNull()
-        when {
-            t == null && g == null && d == null -> secMira.decir("rellena tamano o grosor")
-            t != null && t !in 10..600 -> secMira.decir("tamano entre 10 y 600 px")
-            g != null && g !in 1..40 -> secMira.decir("grosor entre 1 y 40 px")
-            d != null && d !in -1200..1200 -> secMira.decir("desfase entre -1200 y 1200 px")
-            else -> aplicarMira(tamano = t, grosor = g, desfase = d)
-        }
-    }
-
     // ---------- lanzador ----------
 
     private fun prefs() = getSharedPreferences("perfil", MODE_PRIVATE)
-
-    // ---------- gatillos ----------
-
-    /** Busca X-Arena / el game booster de la ROM y lo abre: el mapeo real lo hace ese servicio. */
-    private fun abrirGestorJuegos() {
-        lanzar {
-            val lista = JvcCommands.gestoresJuego(this)
-            if (lista.isEmpty()) {
-                secGatillos.decir(
-                    "no veo el gestor de juegos instalado. Buscalo en Ajustes como X-Arena y " +
-                        "abre ahi Gatillos/GT Trigger: esa pantalla es del sistema, mi app no puede dibujarla."
-                )
-                return@lanzar
-            }
-            if (lista.size == 1) {
-                runOnUiThread { abrirApp(secGatillos, lista.first().second) }
-                return@lanzar
-            }
-            val nombres = lista.map { it.first }
-            val paquetes = lista.map { it.second }
-            runOnUiThread {
-                AlertDialog.Builder(this)
-                    .setTitle("Cual abrimos")
-                    .setItems(nombres.toTypedArray()) { _, i -> abrirApp(secGatillos, paquetes[i]) }
-                    .show()
-            }
-        }
-    }
-
-    private fun prefsGatillos() = getSharedPreferences("gatillos", MODE_PRIVATE)
-
-    private fun guardarGatillos() {
-        val modelo = JvcCommands.miTelefono()
-        prefsGatillos().edit()
-            .putString("modelo", modelo)
-            .putString("sens", sensInput.text.toString().trim())
-            .putString("cadencia", cadenciaInput.text.toString().trim())
-            .putString("modo", modoInput.text.toString().trim())
-            .apply()
-        secGatillos.decir(
-            "anotado para $modelo: sensibilidad ${sensInput.text} · " +
-                "${cadenciaInput.text} toques/s · ${modoInput.text}\n" +
-                "ahora pulsa 'Abrir el gestor' y aplica esos numeros en Gatillos: los botones " +
-                "fisicos solo los traduce la ROM."
-        )
-    }
-
-    private fun verGatillos() {
-        val p = prefsGatillos()
-        val modelo = JvcCommands.miTelefono()
-        val s = p.getString("sens", "")?.ifBlank { null }
-        val c = p.getString("cadencia", "")?.ifBlank { null }
-        val m = p.getString("modo", "")?.ifBlank { null }
-        secGatillos.decir(
-            if (s == null && c == null && m == null) "nada guardado todavia ($modelo)"
-            else "$modelo -> sensibilidad ${s ?: "-"} · toques/s ${c ?: "-"} · modo ${m ?: "-"}"
-        )
-    }
 
     private fun fueraDeReposo() {
         val pkg = paqueteElegido
