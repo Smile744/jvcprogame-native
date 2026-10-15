@@ -29,11 +29,6 @@
             android:name=".MainActivity"
             android:exported="false" />
 
-        <activity
-            android:name=".MapaGatillosActivity"
-            android:exported="false"
-            android:label="Mapa de gatillos" />
-
         <service
             android:name=".FpsOverlayService"
             android:exported="false"
