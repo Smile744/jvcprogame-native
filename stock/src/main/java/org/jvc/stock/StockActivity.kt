@@ -117,7 +117,7 @@ class StockActivity : Activity() {
             addView(botonesEspejo, anchoCompleto(6))
             addView(estadoEspejo, anchoCompleto(6))
             addView(autoEspejoCaja, anchoCompleto(6))
-            addView(HorizontalScrollView(this).apply { addView(espejo) }, anchoCompleto(14))
+            addView(HorizontalScrollView(this@StockActivity).apply { addView(espejo) }, anchoCompleto(14))
             addView(linea("---- abajo: solo si vas directo a la base ----", 0xFF4A4A55.toInt()))
             addView(etiqueta("Servidor"))
             addView(cajaHost, anchoCompleto(10))
