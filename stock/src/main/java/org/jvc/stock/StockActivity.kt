@@ -2,6 +2,7 @@ package org.jvc.stock
 
 import android.app.Activity
 import android.content.SharedPreferences
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -12,7 +13,11 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -30,6 +35,8 @@ class StockActivity : Activity() {
     private var conexion: Connection? = null
     private var enPuente = false
     private var ocupado = false
+    private var autoEspejo = false
+    private var ampliacion = 1.6f
 
     private lateinit var cajaPuente: EditText
     private lateinit var cajaToken: EditText
@@ -41,7 +48,18 @@ class StockActivity : Activity() {
     private lateinit var cajaBusqueda: EditText
     private lateinit var cajaTabla: EditText
     private lateinit var estado: TextView
+    private lateinit var estadoEspejo: TextView
     private lateinit var resultados: LinearLayout
+    private lateinit var espejo: ImageView
+    private lateinit var autoEspejoCaja: CheckBox
+
+    private val tick = object : Runnable {
+        override fun run() {
+            if (!autoEspejo) return
+            if (!ocupado) actualizarEspejo()
+            ui.postDelayed(this, 8000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,12 +80,28 @@ class StockActivity : Activity() {
         cajaTabla = campo("", InputType.TYPE_CLASS_TEXT)
         cajaTabla.hint = "vacio = la de productos"
         estado = linea("", 0xFF7A7A86.toInt())
+        estadoEspejo = linea("todavia no pedi ninguna pantalla", 0xFF7A7A86.toInt())
         resultados = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        espejo = ImageView(this).apply {
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF16161A.toInt())
+        }
+        autoEspejoCaja = CheckBox(this).apply {
+            text = "actualizar solo cada 8 segundos"
+            textSize = 12f
+            setTextColor(0xFF7A7A86.toInt())
+            setOnCheckedChangeListener { _, marcado -> prenderAuto(marcado) }
+        }
 
         val botones = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         botones.addView(boton("ENTRAR") { entrar() }, pesoHorizontal(1f))
         botones.addView(boton("BUSCAR") { buscar() }, pesoHorizontal(1f))
         botones.addView(boton("SALIR") { desconectar() }, pesoHorizontal(1f))
+
+        val botonesEspejo = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        botonesEspejo.addView(boton("VER PANTALLA PC") { actualizarEspejo() }, pesoHorizontal(2f))
+        botonesEspejo.addView(boton("TAMANO") { ciclarTamano() }, pesoHorizontal(1f))
 
         val pantalla = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -79,6 +113,11 @@ class StockActivity : Activity() {
             addView(cajaPuente, anchoCompleto(10))
             addView(etiqueta("Token del puente"))
             addView(cajaToken, anchoCompleto(10))
+            addView(etiqueta("ESPEJO: la pantalla del Datacenter en tu PC, foto fresca. Solo necesita puente y token."))
+            addView(botonesEspejo, anchoCompleto(6))
+            addView(estadoEspejo, anchoCompleto(6))
+            addView(autoEspejoCaja, anchoCompleto(6))
+            addView(HorizontalScrollView(this).apply { addView(espejo) }, anchoCompleto(14))
             addView(linea("---- abajo: solo si vas directo a la base ----", 0xFF4A4A55.toInt()))
             addView(etiqueta("Servidor"))
             addView(cajaHost, anchoCompleto(10))
@@ -351,6 +390,90 @@ class StockActivity : Activity() {
         }
     }
 
+    private fun actualizarEspejo() {
+        if (ocupado) return
+        val puente = textoDe(cajaPuente)
+        if (puente.isBlank()) { decirEspejo("arriba falta la direccion del puente", 0xFFFF6B6B.toInt()); return }
+        guardarPrefs()
+        ocupado = true
+        decirEspejo("pidiendole la pantalla a tu PC...", 0xFFFFD479.toInt())
+        val direccion = puente.trimEnd('/') + "/pantalla?ancho=1400"
+        hilo {
+            try {
+                val datos = bytesDe(direccion)
+                val mapa = BitmapFactory.decodeByteArray(datos, 0, datos.size)
+                if (mapa == null) { fracasoEspejo("el puente mando algo que no es imagen") }
+                else ui.post {
+                    ocupado = false
+                    espejo.setImageBitmap(mapa)
+                    ajustarTamano()
+                    decirEspejo("actualizada " + horaActual(), 0xFF00FFB7.toInt())
+                }
+            } catch (e: Throwable) {
+                fracasoEspejo(mensaje(e))
+            }
+        }
+    }
+
+    private fun bytesDe(direccion: String): ByteArray {
+        val c = URL(direccion).openConnection() as HttpURLConnection
+        c.connectTimeout = 8000
+        c.readTimeout = 30000
+        c.setRequestProperty("Accept", "image/png")
+        val t = textoDe(cajaToken)
+        if (t.isNotBlank()) c.setRequestProperty("x-token", t)
+        try {
+            val codigo = c.responseCode
+            val datos = (if (codigo in 200..299) c.inputStream else c.errorStream)?.readBytes() ?: ByteArray(0)
+            if (codigo !in 200..299) {
+                val motivo = try { JSONObject(String(datos, Charsets.UTF_8)).optString("motivo", "http $codigo") }
+                             catch (ignora: Exception) { "http $codigo" }
+                throw RuntimeException(motivo)
+            }
+            return datos
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    private fun ajustarTamano() {
+        val anchoPantalla = resources.displayMetrics.widthPixels
+        val lp = espejo.layoutParams as? FrameLayout.LayoutParams
+            ?: FrameLayout.LayoutParams(anchoPantalla, FrameLayout.LayoutParams.WRAP_CONTENT)
+        lp.width = (anchoPantalla * ampliacion).toInt()
+        lp.height = FrameLayout.LayoutParams.WRAP_CONTENT
+        espejo.layoutParams = lp
+    }
+
+    private fun ciclarTamano() {
+        ampliacion = when {
+            ampliacion < 1.2f -> 1.6f
+            ampliacion < 1.8f -> 2.4f
+            else -> 1.0f
+        }
+        ajustarTamano()
+        decirEspejo("tamano x" + String.format("%.1f", ampliacion), 0xFF7A7A86.toInt())
+    }
+
+    private fun prenderAuto(marcado: Boolean) {
+        autoEspejo = marcado
+        ui.removeCallbacks(tick)
+        if (marcado) ui.postDelayed(tick, 800)
+    }
+
+    private fun fracasoEspejo(texto: String) {
+        ui.post { ocupado = false; decirEspejo("espejo: $texto", 0xFFFF6B6B.toInt()) }
+    }
+
+    private fun decirEspejo(texto: String, color: Int) {
+        Log.i("JVCSTOCK", texto)
+        estadoEspejo.text = texto
+        estadoEspejo.setTextColor(color)
+    }
+
+    private fun horaActual(): String =
+        android.text.format.DateFormat.format("HH:mm:ss", java.util.Date()).toString()
+
     private fun http(direccion: String, cuerpo: String?): String {
         val c = URL(direccion).openConnection() as HttpURLConnection
         c.connectTimeout = 8000
@@ -481,6 +604,8 @@ class StockActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        autoEspejo = false
+        ui.removeCallbacks(tick)
         val vieja = conexion
         conexion = null
         hilo { try { vieja?.close() } catch (ignora: Exception) { } }
