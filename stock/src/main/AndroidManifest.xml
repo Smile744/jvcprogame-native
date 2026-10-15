@@ -5,7 +5,7 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/jvc_emblema"
+        android:icon="@drawable/jvc_emblema_stock"
         android:label="JVC STOCK"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
