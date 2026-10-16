@@ -156,6 +156,10 @@ class StockActivity : Activity() {
             teclado.addView(boton("ESCRIBIR") { escribirEnPc(false) }, pesoHorizontal(1f))
             teclado.addView(boton("IR") { escribirEnPc(true) }, pesoHorizontal(0.7f))
             addView(teclado, anchoCompleto(6))
+            val filaTeclas = LinearLayout(this@StockActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            filaTeclas.addView(boton("SHIFT+F9") { teclaEnPc(120, true) }, pesoHorizontal(1f))
+            filaTeclas.addView(boton("RETROCESO") { teclaEnPc(8, false) }, pesoHorizontal(1f))
+            addView(filaTeclas, anchoCompleto(6))
             addView(linea("doble toque = doble clic · deslizar hacia arriba o abajo = rueda del mouse", 0xFF7A7A86.toInt()), anchoCompleto(6))
             addView(linea("---- abajo: solo si vas directo a la base ----", 0xFF4A4A55.toInt()))
             addView(etiqueta("Servidor"))
@@ -540,6 +544,29 @@ class StockActivity : Activity() {
                 ui.post {
                     ocupado = false
                     decirEspejo("escrito en la PC " + horaActual(), 0xFF00FFB7.toInt())
+                    actualizarEspejo()
+                }
+            } catch (e: Throwable) {
+                ocupado = false
+                fracasoEspejo(mensaje(e))
+            }
+        }
+    }
+
+    private fun teclaEnPc(vk: Int, conShift: Boolean) {
+        val puente = textoDe(cajaPuente)
+        if (puente.isBlank()) { decirEspejo("falta la direccion del puente", 0xFFFF6B6B.toInt()); return }
+        if (ocupado) return
+        ocupado = true
+        decirEspejo("mandando tecla a la PC...", 0xFFFFD479.toInt())
+        hilo {
+            try {
+                val cola = if (conShift) "&shift=1" else ""
+                val url = puente.trimEnd('/') + "/tocar?accion=tecla&vk=" + vk + cola
+                http(url, null)
+                ui.post {
+                    ocupado = false
+                    decirEspejo("tecla ok " + horaActual(), 0xFF00FFB7.toInt())
                     actualizarEspejo()
                 }
             } catch (e: Throwable) {
