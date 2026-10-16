@@ -62,8 +62,8 @@ class StockActivity : Activity() {
 
     private val gestos = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent) = true
-        override fun onSingleTapUp(e: MotionEvent) { tocarEn(e.x, e.y); return true }
-        override fun onDoubleTap(e: MotionEvent) { enviar("doble", e.x, e.y, ""); return true }
+        override fun onSingleTapUp(e: MotionEvent): Boolean { tocarEn(e.x, e.y); return true }
+        override fun onDoubleTap(e: MotionEvent): Boolean { enviar("doble", e.x, e.y, ""); return true }
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float) = true
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
             if (Math.abs(vy) > Math.abs(vx)) {
