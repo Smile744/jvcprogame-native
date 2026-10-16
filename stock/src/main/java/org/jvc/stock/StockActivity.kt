@@ -12,6 +12,7 @@ import android.text.InputType
 import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -57,11 +58,14 @@ class StockActivity : Activity() {
     private lateinit var autoEspejoCaja: CheckBox
     private lateinit var tocarCaja: CheckBox
     private lateinit var cajaTexto: EditText
+    private lateinit var cajaH: HorizontalScrollView
+    private lateinit var cajaV: ScrollView
     private var anchoFoto = 0
     private var altoFoto = 0
 
     // No crearlo como propiedad: el Activity todavia no tiene contexto cuando se ejecuta <init>.
     private lateinit var gestos: GestureDetector
+    private lateinit var pinza: ScaleGestureDetector
 
     private val tick = object : Runnable {
         override fun run() {
@@ -104,25 +108,33 @@ class StockActivity : Activity() {
             setOnCheckedChangeListener { _, marcado -> prenderAuto(marcado) }
         }
         tocarCaja = CheckBox(this).apply {
-            text = "TOCAR: mi dedo maneja la PC (clic, doble clic, deslizar = rueda)"
+            text = "TOCAR: mi dedo maneja la PC (toque = clic, dos dedos = ampliar la foto)"
             textSize = 12f
             setTextColor(0xFFFFD479.toInt())
             setOnCheckedChangeListener { _, marcado -> tocarPermitido = marcado }
         }
         gestos = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent) = true
+            override fun onDown(e: MotionEvent): Boolean = true
             override fun onSingleTapUp(e: MotionEvent): Boolean { tocarEn(e.x, e.y); return true }
             override fun onDoubleTap(e: MotionEvent): Boolean { enviar("doble", e.x, e.y, ""); return true }
-            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float) = true
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (Math.abs(vy) > Math.abs(vx)) {
-                    val giros = if (vy > 0) -6 else 6
-                    enviar("rueda", e2.x, e2.y, giros.toString())
-                }
+        })
+        pinza = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(e: ScaleGestureDetector): Boolean {
+                ampliacion = (ampliacion * e.scaleFactor).coerceIn(0.6f, 4.0f)
+                ajustarTamano()
                 return true
             }
         })
-        espejo.setOnTouchListener { _, ev -> if (tocarPermitido) gestos.onTouchEvent(ev) else false }
+        // Un dedo: toque o arrastre para mover la foto. Dos dedos: pinza para ampliar.
+        espejo.setOnTouchListener { _, ev ->
+            if (!tocarPermitido) false
+            else {
+                pinza.onTouchEvent(ev)
+                espejo.requestDisallowInterceptTouchEvent(pinza.isInProgress())
+                gestos.onTouchEvent(ev)
+                true
+            }
+        }
         cajaTexto = campo("", InputType.TYPE_CLASS_TEXT)
         cajaTexto.hint = "texto para la PC (el codigo que buscas)"
 
@@ -150,7 +162,7 @@ class StockActivity : Activity() {
             addView(estadoEspejo, anchoCompleto(6))
             addView(autoEspejoCaja, anchoCompleto(6))
             addView(tocarCaja, anchoCompleto(6))
-            addView(HorizontalScrollView(this@StockActivity).apply { addView(espejo) }, anchoCompleto(8))
+            addView(cajaEspejo(), anchoCompleto(8))
             val teclado = LinearLayout(this@StockActivity).apply { orientation = LinearLayout.HORIZONTAL }
             teclado.addView(cajaTexto, pesoHorizontal(2.4f))
             teclado.addView(boton("ESCRIBIR") { escribirEnPc(false) }, pesoHorizontal(1f))
@@ -160,7 +172,11 @@ class StockActivity : Activity() {
             filaTeclas.addView(boton("SHIFT+F9") { teclaEnPc(120, true) }, pesoHorizontal(1f))
             filaTeclas.addView(boton("RETROCESO") { teclaEnPc(8, false) }, pesoHorizontal(1f))
             addView(filaTeclas, anchoCompleto(6))
-            addView(linea("doble toque = doble clic · deslizar hacia arriba o abajo = rueda del mouse", 0xFF7A7A86.toInt()), anchoCompleto(6))
+            val filaRueda = LinearLayout(this@StockActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            filaRueda.addView(boton("RUEDA ARRIBA") { ruedaEnCentro(6) }, pesoHorizontal(1f))
+            filaRueda.addView(boton("RUEDA ABAJO") { ruedaEnCentro(-6) }, pesoHorizontal(1f))
+            addView(filaRueda, anchoCompleto(6))
+            addView(linea("toque = clic · doble toque = doble clic · dos dedos = ampliar · un dedo = mover la foto", 0xFF7A7A86.toInt()), anchoCompleto(6))
             addView(linea("---- abajo: solo si vas directo a la base ----", 0xFF4A4A55.toInt()))
             addView(etiqueta("Servidor"))
             addView(cajaHost, anchoCompleto(10))
@@ -481,6 +497,17 @@ class StockActivity : Activity() {
         }
     }
 
+    // La foto se mueve en las dos direcciones cuando esta mas grande que la pantalla.
+    private fun cajaEspejo(): View {
+        val alto = (resources.displayMetrics.heightPixels * 0.45f).toInt()
+        cajaV = ScrollView(this)
+        cajaV.addView(espejo, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        cajaH = HorizontalScrollView(this)
+        cajaH.addView(cajaV, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, alto))
+        return cajaH
+    }
+
     private fun ajustarTamano() {
         val anchoPantalla = resources.displayMetrics.widthPixels
         val lp = espejo.layoutParams as? FrameLayout.LayoutParams
@@ -490,11 +517,23 @@ class StockActivity : Activity() {
         espejo.layoutParams = lp
     }
 
+    // La rueda de la PC se manda al centro de lo que ella esta mirando en la foto.
+    private fun ruedaEnCentro(giros: Int) {
+        if (anchoFoto == 0 || espejo.width == 0 || espejo.height == 0) {
+            decirEspejo("primero pedi la pantalla (VER PANTALLA PC)", 0xFFFF6B6B.toInt()); return
+        }
+        val vx = (cajaH.scrollX + cajaH.width / 2f).coerceAtMost((espejo.width - 1).toFloat())
+        val vy = (cajaV.scrollY + cajaV.height / 2f).coerceAtMost((espejo.height - 1).toFloat())
+        enviar("rueda", vx, vy, giros.toString())
+    }
+
     private fun ciclarTamano() {
         ampliacion = when {
+            ampliacion < 0.8f -> 1.0f
             ampliacion < 1.2f -> 1.6f
             ampliacion < 1.8f -> 2.4f
-            else -> 1.0f
+            ampliacion < 3.0f -> 3.6f
+            else -> 0.6f
         }
         ajustarTamano()
         decirEspejo("tamano x" + String.format("%.1f", ampliacion), 0xFF7A7A86.toInt())
