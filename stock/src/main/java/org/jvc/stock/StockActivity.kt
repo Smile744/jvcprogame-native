@@ -130,7 +130,7 @@ class StockActivity : Activity() {
             if (!tocarPermitido) false
             else {
                 pinza.onTouchEvent(ev)
-                espejo.requestDisallowInterceptTouchEvent(pinza.isInProgress())
+                (espejo.parent as? View)?.requestDisallowInterceptTouchEvent(pinza.isInProgress())
                 gestos.onTouchEvent(ev)
                 true
             }
