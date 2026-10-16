@@ -577,6 +577,7 @@ class StockActivity : Activity() {
         hilo {
             try {
                 val base = puente.trimEnd('/') + "/tocar?"
+                vaciarCampoPc(base)
                 // limpiar=1: la PC selecciona todo antes de escribir, asi un doble envio no duplica el texto.
                 http(base + "accion=texto&limpiar=1&texto=" + enc(t), null)
                 if (conEnter) Thread.sleep(250)
@@ -591,6 +592,16 @@ class StockActivity : Activity() {
                 fracasoEspejo(mensaje(e))
             }
         }
+    }
+
+    // HOME, SHIFT+FIN, BORRAR: vacia el campo de la PC usando solo teclas que el puente ya permite.
+    private fun vaciarCampoPc(base: String) {
+        http(base + "accion=tecla&vk=36", null)
+        Thread.sleep(120)
+        http(base + "accion=tecla&vk=35&shift=1", null)
+        Thread.sleep(120)
+        http(base + "accion=tecla&vk=8", null)
+        Thread.sleep(120)
     }
 
     private fun teclaEnPc(vk: Int, conShift: Boolean) {
