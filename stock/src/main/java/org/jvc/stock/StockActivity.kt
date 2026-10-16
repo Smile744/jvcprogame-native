@@ -60,19 +60,8 @@ class StockActivity : Activity() {
     private var anchoFoto = 0
     private var altoFoto = 0
 
-    private val gestos = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(e: MotionEvent) = true
-        override fun onSingleTapUp(e: MotionEvent): Boolean { tocarEn(e.x, e.y); return true }
-        override fun onDoubleTap(e: MotionEvent): Boolean { enviar("doble", e.x, e.y, ""); return true }
-        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float) = true
-        override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-            if (Math.abs(vy) > Math.abs(vx)) {
-                val giros = if (vy > 0) -6 else 6
-                enviar("rueda", e2.x, e2.y, giros.toString())
-            }
-            return true
-        }
-    })
+    // No crearlo como propiedad: el Activity todavia no tiene contexto cuando se ejecuta <init>.
+    private lateinit var gestos: GestureDetector
 
     private val tick = object : Runnable {
         override fun run() {
@@ -120,6 +109,19 @@ class StockActivity : Activity() {
             setTextColor(0xFFFFD479.toInt())
             setOnCheckedChangeListener { _, marcado -> tocarPermitido = marcado }
         }
+        gestos = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+            override fun onSingleTapUp(e: MotionEvent): Boolean { tocarEn(e.x, e.y); return true }
+            override fun onDoubleTap(e: MotionEvent): Boolean { enviar("doble", e.x, e.y, ""); return true }
+            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float) = true
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (Math.abs(vy) > Math.abs(vx)) {
+                    val giros = if (vy > 0) -6 else 6
+                    enviar("rueda", e2.x, e2.y, giros.toString())
+                }
+                return true
+            }
+        })
         espejo.setOnTouchListener { _, ev -> if (tocarPermitido) gestos.onTouchEvent(ev) else false }
         cajaTexto = campo("", InputType.TYPE_CLASS_TEXT)
         cajaTexto.hint = "texto para la PC (el codigo que buscas)"
