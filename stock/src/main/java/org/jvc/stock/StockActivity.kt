@@ -136,7 +136,7 @@ class StockActivity : Activity() {
             }
         }
         cajaTexto = campo("", InputType.TYPE_CLASS_TEXT)
-        cajaTexto.hint = "texto para la PC (el codigo que buscas)"
+        cajaTexto.hint = "texto para la PC (reemplaza lo que ya esta escrito)"
 
         val botones = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         botones.addView(boton("ENTRAR") { entrar() }, pesoHorizontal(1f))
@@ -577,12 +577,13 @@ class StockActivity : Activity() {
         hilo {
             try {
                 val base = puente.trimEnd('/') + "/tocar?"
-                http(base + "accion=texto&texto=" + enc(t), null)
+                // limpiar=1: la PC selecciona todo antes de escribir, asi un doble envio no duplica el texto.
+                http(base + "accion=texto&limpiar=1&texto=" + enc(t), null)
                 if (conEnter) Thread.sleep(250)
                 if (conEnter) http(base + "accion=tecla&vk=13", null)
                 ui.post {
                     ocupado = false
-                    decirEspejo("escrito en la PC " + horaActual(), 0xFF00FFB7.toInt())
+                    decirEspejo("escrito, reemplaza lo que habia " + horaActual(), 0xFF00FFB7.toInt())
                     actualizarEspejo()
                 }
             } catch (e: Throwable) {
