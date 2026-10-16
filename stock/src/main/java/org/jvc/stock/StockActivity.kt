@@ -10,6 +10,8 @@ import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.util.Log
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -36,6 +38,7 @@ class StockActivity : Activity() {
     private var enPuente = false
     private var ocupado = false
     private var autoEspejo = false
+    private var tocarPermitido = false
     private var ampliacion = 1.6f
 
     private lateinit var cajaPuente: EditText
@@ -52,6 +55,24 @@ class StockActivity : Activity() {
     private lateinit var resultados: LinearLayout
     private lateinit var espejo: ImageView
     private lateinit var autoEspejoCaja: CheckBox
+    private lateinit var tocarCaja: CheckBox
+    private lateinit var cajaTexto: EditText
+    private var anchoFoto = 0
+    private var altoFoto = 0
+
+    private val gestos = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent) = true
+        override fun onSingleTapUp(e: MotionEvent) { tocarEn(e.x, e.y); return true }
+        override fun onDoubleTap(e: MotionEvent) { enviar("doble", e.x, e.y, ""); return true }
+        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float) = true
+        override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+            if (Math.abs(vy) > Math.abs(vx)) {
+                val giros = if (vy > 0) -6 else 6
+                enviar("rueda", e2.x, e2.y, giros.toString())
+            }
+            return true
+        }
+    })
 
     private val tick = object : Runnable {
         override fun run() {
@@ -93,6 +114,15 @@ class StockActivity : Activity() {
             setTextColor(0xFF7A7A86.toInt())
             setOnCheckedChangeListener { _, marcado -> prenderAuto(marcado) }
         }
+        tocarCaja = CheckBox(this).apply {
+            text = "TOCAR: mi dedo maneja la PC (clic, doble clic, deslizar = rueda)"
+            textSize = 12f
+            setTextColor(0xFFFFD479.toInt())
+            setOnCheckedChangeListener { _, marcado -> tocarPermitido = marcado }
+        }
+        espejo.setOnTouchListener { _, ev -> if (tocarPermitido) gestos.onTouchEvent(ev) else false }
+        cajaTexto = campo("", InputType.TYPE_CLASS_TEXT)
+        cajaTexto.hint = "texto para la PC (el codigo que buscas)"
 
         val botones = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         botones.addView(boton("ENTRAR") { entrar() }, pesoHorizontal(1f))
@@ -117,7 +147,14 @@ class StockActivity : Activity() {
             addView(botonesEspejo, anchoCompleto(6))
             addView(estadoEspejo, anchoCompleto(6))
             addView(autoEspejoCaja, anchoCompleto(6))
-            addView(HorizontalScrollView(this@StockActivity).apply { addView(espejo) }, anchoCompleto(14))
+            addView(tocarCaja, anchoCompleto(6))
+            addView(HorizontalScrollView(this@StockActivity).apply { addView(espejo) }, anchoCompleto(8))
+            val teclado = LinearLayout(this@StockActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            teclado.addView(cajaTexto, pesoHorizontal(2.4f))
+            teclado.addView(boton("ESCRIBIR") { escribirEnPc(false) }, pesoHorizontal(1f))
+            teclado.addView(boton("IR") { escribirEnPc(true) }, pesoHorizontal(0.7f))
+            addView(teclado, anchoCompleto(6))
+            addView(linea("doble toque = doble clic · deslizar hacia arriba o abajo = rueda del mouse", 0xFF7A7A86.toInt()), anchoCompleto(6))
             addView(linea("---- abajo: solo si vas directo a la base ----", 0xFF4A4A55.toInt()))
             addView(etiqueta("Servidor"))
             addView(cajaHost, anchoCompleto(10))
@@ -405,6 +442,8 @@ class StockActivity : Activity() {
                 if (mapa == null) { fracasoEspejo("el puente mando algo que no es imagen") }
                 else ui.post {
                     ocupado = false
+                    anchoFoto = mapa.width
+                    altoFoto = mapa.height
                     espejo.setImageBitmap(mapa)
                     ajustarTamano()
                     decirEspejo("actualizada " + horaActual(), 0xFF00FFB7.toInt())
@@ -455,6 +494,59 @@ class StockActivity : Activity() {
         decirEspejo("tamano x" + String.format("%.1f", ampliacion), 0xFF7A7A86.toInt())
     }
 
+    private fun tocarEn(x: Float, y: Float) = enviar("clic", x, y, "")
+
+    // El dedo esta sobre la foto; el puente necesita pixeles de la ventana real.
+    private fun enviar(accion: String, x: Float, y: Float, extra: String) {
+        val puente = textoDe(cajaPuente)
+        if (puente.isBlank()) { decirEspejo("falta la direccion del puente", 0xFFFF6B6B.toInt()); return }
+        if (anchoFoto == 0 || espejo.width == 0 || espejo.height == 0) {
+            decirEspejo("primero pedi la pantalla (VER PANTALLA PC)", 0xFFFF6B6B.toInt()); return
+        }
+        val fx = (x / espejo.width * anchoFoto).toInt().coerceIn(0, anchoFoto - 1)
+        val fy = (y / espejo.height * altoFoto).toInt().coerceIn(0, altoFoto - 1)
+        val cola = if (accion == "rueda") "&giros=" + extra else ""
+        val url = puente.trimEnd('/') + "/tocar?accion=" + enc(accion) + "&x=" + fx + "&y=" + fy + cola
+        decirEspejo("mandando " + accion + " a la PC...", 0xFFFFD479.toInt())
+        hilo {
+            try {
+                http(url, null)
+                ui.post {
+                    decirEspejo(accion + " ok " + horaActual(), 0xFF00FFB7.toInt())
+                    ui.postDelayed({ actualizarEspejo() }, 500)
+                }
+            } catch (e: Throwable) {
+                fracasoEspejo(mensaje(e))
+            }
+        }
+    }
+
+    private fun escribirEnPc(conEnter: Boolean) {
+        val puente = textoDe(cajaPuente)
+        val t = cajaTexto.text.toString()
+        if (puente.isBlank()) { decirEspejo("falta la direccion del puente", 0xFFFF6B6B.toInt()); return }
+        if (t.isBlank()) { decirEspejo("escribe algo en el campo de texto", 0xFFFF6B6B.toInt()); return }
+        if (ocupado) return
+        ocupado = true
+        decirEspejo("escribiendo en la PC...", 0xFFFFD479.toInt())
+        hilo {
+            try {
+                val base = puente.trimEnd('/') + "/tocar?"
+                http(base + "accion=texto&texto=" + enc(t), null)
+                if (conEnter) Thread.sleep(250)
+                if (conEnter) http(base + "accion=tecla&vk=13", null)
+                ui.post {
+                    ocupado = false
+                    decirEspejo("escrito en la PC " + horaActual(), 0xFF00FFB7.toInt())
+                    actualizarEspejo()
+                }
+            } catch (e: Throwable) {
+                ocupado = false
+                fracasoEspejo(mensaje(e))
+            }
+        }
+    }
+
     private fun prenderAuto(marcado: Boolean) {
         autoEspejo = marcado
         ui.removeCallbacks(tick)
@@ -479,6 +571,8 @@ class StockActivity : Activity() {
         c.connectTimeout = 8000
         c.readTimeout = 25000
         c.setRequestProperty("Accept", "application/json")
+        val tk = textoDe(cajaToken)
+        if (tk.isNotBlank()) c.setRequestProperty("x-token", tk)
         try {
             if (cuerpo != null) {
                 c.requestMethod = "POST"
